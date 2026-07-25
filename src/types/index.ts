@@ -86,6 +86,8 @@ export interface Riparazione {
   /** Firma del cliente in accettazione, come data URL PNG */
   firmaCliente?: string
   noteInterne?: string
+  /** Cronologia dei passaggi di stato, dalla più vecchia. */
+  storico?: EventoRiparazione[]
 }
 
 export type StatoPreventivo = 'bozza' | 'inviato' | 'accettato' | 'rifiutato' | 'scaduto'
@@ -217,6 +219,45 @@ export interface Azienda {
   formatoPreventivo: string
 }
 
+export type CausaleMovimento =
+  | 'carico_ordine'
+  | 'storno_ordine'
+  | 'consumo_riparazione'
+  | 'reso_riparazione'
+  | 'rettifica_manuale'
+  | 'inventario'
+
+/**
+ * Movimento di giacenza.
+ *
+ * Serve a rispondere alla domanda «perché mancano tre display?»: senza
+ * registro resta solo il saldo, e ogni discrepanza è impossibile da ricostruire.
+ */
+export interface MovimentoMagazzino {
+  id: string
+  articoloId: string
+  /** Data e ora ISO complete: nella stessa giornata l'ordine conta. */
+  istante: string
+  /** Positivo in entrata, negativo in uscita. */
+  delta: number
+  /** Giacenza risultante dopo il movimento. */
+  giacenzaFinale: number
+  causale: CausaleMovimento
+  /** Riparazione o ordine che ha generato il movimento. */
+  riferimentoId?: string
+  /** Testo già pronto per l'elenco, es. «Ordine O26-0021». */
+  riferimento?: string
+}
+
+/** Passaggio di stato di una riparazione, per ricostruirne la storia. */
+export interface EventoRiparazione {
+  id: string
+  istante: string
+  da?: StatoRiparazione
+  a: StatoRiparazione
+  nota?: string
+}
+
 export interface DatabaseGestionale {
   clienti: Cliente[]
   riparazioni: Riparazione[]
@@ -226,5 +267,6 @@ export interface DatabaseGestionale {
   ordini: OrdineFornitore[]
   scadenze: Scadenza[]
   impianti: Impianto[]
+  movimenti: MovimentoMagazzino[]
   azienda: Azienda
 }

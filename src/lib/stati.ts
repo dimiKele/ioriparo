@@ -1,5 +1,6 @@
 import { oggiISO } from './format'
 import type {
+  CausaleMovimento,
   Fattura,
   Preventivo,
   StatoFattura,
@@ -231,6 +232,15 @@ export const TIPI_SCADENZA: Record<TipoScadenza, { label: string; colore: string
   rinnovo: { label: 'Rinnovo', colore: '#3b82f6' },
   promemoria: { label: 'Promemoria', colore: '#a855f7' },
   tassa: { label: 'Tassa / F24', colore: '#22c55e' },
+}
+
+export const CAUSALI_MOVIMENTO: Record<CausaleMovimento, string> = {
+  carico_ordine: 'Carico da ordine',
+  storno_ordine: 'Storno carico ordine',
+  consumo_riparazione: 'Ricambio montato',
+  reso_riparazione: 'Ricambio rientrato',
+  rettifica_manuale: 'Rettifica manuale',
+  inventario: 'Inventario',
 }
 
 export const TIPI_DISPOSITIVO: Record<TipoDispositivo, string> = {

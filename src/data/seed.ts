@@ -590,6 +590,7 @@ export function creaDatabaseIniziale(): DatabaseGestionale {
     ordini: ORDINI,
     scadenze: SCADENZE,
     impianti: IMPIANTI,
+    movimenti: [],
     azienda: AZIENDA,
   }
 }

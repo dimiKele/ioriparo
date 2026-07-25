@@ -18,8 +18,11 @@ import type {
   CondizioneEsterna,
   DatabaseGestionale,
   Fattura,
+  CausaleMovimento,
+  EventoRiparazione,
   Impianto,
   MetodoPagamento,
+  MovimentoMagazzino,
   OrdineFornitore,
   Preventivo,
   PrioritaScadenza,
@@ -99,6 +102,14 @@ const TIPI_SCADENZA_VALIDI: TipoScadenza[] = [
   'tassa',
 ]
 const PRIORITA_VALIDE: PrioritaScadenza[] = ['urgente', 'normale', 'bassa']
+const CAUSALI_VALIDE: CausaleMovimento[] = [
+  'carico_ordine',
+  'storno_ordine',
+  'consumo_riparazione',
+  'reso_riparazione',
+  'rettifica_manuale',
+  'inventario',
+]
 const STATI_IMPIANTO_VALIDI: StatoImpianto[] = [
   'attivo',
   'in_manutenzione',
@@ -187,6 +198,25 @@ function righeIntervento(valore: unknown, prefisso: string): RigaIntervento[] {
       },
     ]
   })
+}
+
+function storicoRiparazione(valore: unknown): EventoRiparazione[] | undefined {
+  const eventi = elenco(valore).flatMap<EventoRiparazione>((grezzo) => {
+    if (!eOggetto(grezzo)) return []
+    const a = daElenco(grezzo.a, STATI_RIPARAZIONE_VALIDI)
+    const istante = testo(grezzo.istante)
+    if (!a || !istante) return []
+    return [
+      {
+        id: testo(grezzo.id) ?? idGenerato('evt'),
+        istante,
+        da: daElenco(grezzo.da, STATI_RIPARAZIONE_VALIDI),
+        a,
+        nota: testo(grezzo.nota),
+      },
+    ]
+  })
+  return eventi.length > 0 ? eventi : undefined
 }
 
 function righeOrdine(valore: unknown): RigaOrdine[] {
@@ -333,6 +363,7 @@ export function validaArchivio(
     'ordini',
     'scadenze',
     'impianti',
+    'movimenti',
     'azienda',
   ]
   if (!sezioniNote.some((sezione) => sezione in contenuto)) {
@@ -396,6 +427,7 @@ export function validaArchivio(
             ? g.firmaCliente
             : undefined,
         noteInterne: testo(g.noteInterne),
+        storico: storicoRiparazione(g.storico),
       }
     },
   )
@@ -511,6 +543,28 @@ export function validaArchivio(
     }
   })
 
+  const movimenti = collezione<MovimentoMagazzino>(
+    contenuto.movimenti,
+    'Movimenti di magazzino',
+    avvisi,
+    (g) => {
+      const articoloId = testo(g.articoloId)
+      const istante = testo(g.istante)
+      const delta = numeroFinito(g.delta)
+      if (!articoloId || !istante || delta === undefined) return null
+      return {
+        id: testo(g.id) ?? idGenerato('mov'),
+        articoloId,
+        istante,
+        delta,
+        giacenzaFinale: numeroFinito(g.giacenzaFinale) ?? 0,
+        causale: daElenco(g.causale, CAUSALI_VALIDE) ?? 'rettifica_manuale',
+        riferimentoId: testo(g.riferimentoId),
+        riferimento: testo(g.riferimento),
+      }
+    },
+  )
+
   const db: DatabaseGestionale = {
     clienti,
     riparazioni,
@@ -520,6 +574,7 @@ export function validaArchivio(
     ordini,
     scadenze,
     impianti,
+    movimenti,
     azienda: azienda(contenuto.azienda, riferimento.azienda, avvisi),
   }
 

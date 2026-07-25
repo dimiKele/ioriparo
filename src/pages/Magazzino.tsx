@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Boxes,
   Download,
+  History,
   Minus,
   Package,
   Pencil,
@@ -33,7 +34,9 @@ import { articoliSottoScorta, valoreMagazzino } from '@/data/metriche'
 import { useElenco } from '@/lib/useElenco'
 import { esportaCsv, nomeFileConData, numeroCsv } from '@/lib/esporta'
 import { margine } from '@/lib/calcoli'
-import { formatEuro } from '@/lib/format'
+import { CAUSALI_MOVIMENTO } from '@/lib/stati'
+import { cn } from '@/lib/cn'
+import { formatDataOra, formatEuro } from '@/lib/format'
 import type { ArticoloMagazzino } from '@/types'
 
 const VUOTO = {
@@ -54,7 +57,8 @@ export function Magazzino() {
     sottotitolo: 'Ricambi, accessori e disponibilità',
   })
 
-  const { db, aggiungiArticolo, aggiornaArticolo, eliminaArticolo } = useGestionale()
+  const { db, aggiungiArticolo, aggiornaArticolo, eliminaArticolo, muoviGiacenze, movimentiArticolo } =
+    useGestionale()
   const [parametri, setParametri] = useSearchParams()
 
   const [ricerca, setRicerca] = useState('')
@@ -63,6 +67,7 @@ export function Magazzino() {
   const [form, setForm] = useState<typeof VUOTO | null>(null)
   const [inModifica, setInModifica] = useState<string | null>(null)
   const [daEliminare, setDaEliminare] = useState<ArticoloMagazzino | null>(null)
+  const [storicoDi, setStoricoDi] = useState<ArticoloMagazzino | null>(null)
   const [errore, setErrore] = useState('')
 
   useEffect(() => {
@@ -101,6 +106,8 @@ export function Magazzino() {
     perPaginaIniziale: 10,
     ordinamentoIniziale: { campo: 'nome', direzione: 'asc' },
   })
+
+  const movimenti = storicoDi ? movimentiArticolo(storicoDi.id) : []
 
   /** Quante righe di documenti citano l'articolo in eliminazione. */
   const riferimentiArticolo = useMemo(() => {
@@ -169,20 +176,41 @@ export function Magazzino() {
       return
     }
 
+    const nuovaQuantita = Number.isFinite(quantita) ? quantita : 0
     const dati = {
       codice: codice || codiceAutomatico(form.nome, inModifica),
       nome: form.nome.trim(),
       categoria: form.categoria.trim() || 'Varie',
       fornitore: form.fornitore.trim() || undefined,
-      quantita: Number.isFinite(quantita) ? quantita : 0,
+      quantita: nuovaQuantita,
       scorta_minima: Number.isFinite(scorta) ? scorta : 0,
       prezzoAcquisto: Number.isFinite(acquisto) ? acquisto : 0,
       prezzoVendita: vendita,
       ubicazione: form.ubicazione.trim() || undefined,
     }
 
-    if (inModifica) aggiornaArticolo(inModifica, dati)
-    else aggiungiArticolo(dati)
+    if (inModifica) {
+      const precedente = db.magazzino.find((a) => a.id === inModifica)
+      aggiornaArticolo(inModifica, dati)
+      // La rettifica della giacenza passa dal registro, così resta tracciata
+      // come tutte le altre variazioni.
+      if (precedente && precedente.quantita !== nuovaQuantita) {
+        muoviGiacenze([
+          {
+            articoloId: inModifica,
+            delta: nuovaQuantita - precedente.quantita,
+            causale: 'inventario',
+          },
+        ])
+      }
+    } else {
+      const creato = aggiungiArticolo({ ...dati, quantita: 0 })
+      if (nuovaQuantita !== 0) {
+        muoviGiacenze([
+          { articoloId: creato.id, delta: nuovaQuantita, causale: 'inventario' },
+        ])
+      }
+    }
 
     chiudiForm()
   }
@@ -211,7 +239,7 @@ export function Magazzino() {
 
   /** Carico e scarico rapido dalla riga della tabella. */
   function muoviGiacenza(articolo: ArticoloMagazzino, delta: number) {
-    aggiornaArticolo(articolo.id, { quantita: Math.max(0, articolo.quantita + delta) })
+    muoviGiacenze([{ articoloId: articolo.id, delta, causale: 'rettifica_manuale' }])
   }
 
   function esporta() {
@@ -416,6 +444,13 @@ export function Magazzino() {
                         <span className="flex justify-end gap-1.5">
                           <Button
                             dimensione="sm"
+                            onClick={() => setStoricoDi(articolo)}
+                            aria-label="Storico movimenti"
+                          >
+                            <History size={14} />
+                          </Button>
+                          <Button
+                            dimensione="sm"
                             variante="primario"
                             onClick={() => apriModifica(articolo)}
                             aria-label="Modifica articolo"
@@ -546,6 +581,50 @@ export function Magazzino() {
           <option key={valore} value={valore} />
         ))}
       </datalist>
+
+      <Modal
+        aperta={storicoDi !== null}
+        titolo="Movimenti di magazzino"
+        sottotitolo={storicoDi ? `${storicoDi.nome} · ${storicoDi.quantita} pz in giacenza` : ''}
+        onChiudi={() => setStoricoDi(null)}
+        piede={<Button onClick={() => setStoricoDi(null)}>Chiudi</Button>}
+      >
+        {storicoDi &&
+          (movimenti.length === 0 ? (
+            <p className="py-6 text-center text-sm text-ink-faint">
+              Nessun movimento registrato per questo articolo. Il registro parte dal momento in cui
+              è stato introdotto: le giacenze precedenti non hanno una storia.
+            </p>
+          ) : (
+            <ul className="divide-y divide-line">
+              {movimenti.map((movimento) => (
+                <li key={movimento.id} className="flex items-center gap-3 py-2.5">
+                  <span
+                    className={cn(
+                      'w-14 shrink-0 text-right text-sm font-bold',
+                      movimento.delta > 0 ? 'text-emerald-400' : 'text-rose-400',
+                    )}
+                  >
+                    {movimento.delta > 0 ? '+' : ''}
+                    {movimento.delta}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] text-ink">
+                      {CAUSALI_MOVIMENTO[movimento.causale]}
+                    </span>
+                    <span className="block truncate text-[11px] text-ink-faint">
+                      {formatDataOra(movimento.istante)}
+                      {movimento.riferimento ? ` · ${movimento.riferimento}` : ''}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-[13px] text-ink-muted">
+                    {movimento.giacenzaFinale} pz
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ))}
+      </Modal>
 
       <Modal
         aperta={daEliminare !== null}

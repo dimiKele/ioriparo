@@ -14,10 +14,12 @@ import { FORMATO_ORDINE, componiNumero, prossimoProgressivo } from '@/lib/docume
 import type {
   ArticoloMagazzino,
   Azienda,
+  CausaleMovimento,
   Cliente,
   DatabaseGestionale,
   Fattura,
   Impianto,
+  MovimentoMagazzino,
   OrdineFornitore,
   Preventivo,
   Riparazione,
@@ -25,6 +27,20 @@ import type {
 } from '@/types'
 
 const CHIAVE_STORAGE = 'ioriparo:db:v1'
+
+/**
+ * Tetto al registro dei movimenti: è la collezione che cresce più in fretta e
+ * l'archivio sta tutto in una chiave di `localStorage`.
+ */
+const MAX_MOVIMENTI = 2000
+
+export interface RichiestaMovimento {
+  articoloId: string
+  delta: number
+  causale: CausaleMovimento
+  riferimentoId?: string
+  riferimento?: string
+}
 
 /** Genera un identificativo locale (nessun backend: basta unicità in sessione). */
 export function nuovoId(prefisso: string): string {
@@ -95,11 +111,16 @@ interface ContestoGestionale {
   aggiornaArticolo: (id: string, modifiche: Partial<ArticoloMagazzino>) => void
   eliminaArticolo: (id: string) => void
   /**
-   * Somma `delta` alla giacenza di più articoli in un'unica transazione.
-   * Necessario perché più righe possono toccare lo stesso articolo: una
-   * sequenza di `aggiornaArticolo` leggerebbe tutte lo stesso valore iniziale.
+   * Somma `delta` alla giacenza di più articoli in un'unica transazione e
+   * registra i movimenti nel registro.
+   *
+   * Va usata al posto di `aggiornaArticolo` per ogni variazione di giacenza:
+   * più righe possono toccare lo stesso articolo, e una sequenza di
+   * `aggiornaArticolo` leggerebbe tutte lo stesso valore iniziale.
    */
-  muoviGiacenze: (movimenti: Array<{ articoloId: string; delta: number }>) => void
+  muoviGiacenze: (movimenti: RichiestaMovimento[]) => void
+  /** Movimenti di un articolo, dal più recente. */
+  movimentiArticolo: (articoloId: string) => MovimentoMagazzino[]
 
   aggiungiOrdine: (
     ordine: Omit<OrdineFornitore, 'id' | 'numero'> & { numero?: string },
@@ -270,11 +291,41 @@ export function GestionaleProvider({ children }: { children: ReactNode }) {
           ...riparazione,
           id: nuovoId('rip'),
           codice: riparazione.codice ?? prossimoCodice(),
+          storico: [
+            {
+              id: nuovoId('evt'),
+              istante: new Date().toISOString(),
+              a: riparazione.stato,
+              nota: 'Accettazione registrata',
+            },
+          ],
         }
         setDb((p) => ({ ...p, riparazioni: [nuova, ...p.riparazioni] }))
         return nuova
       },
-      aggiornaRiparazione: (id, modifiche) => aggiornaIn('riparazioni', id, modifiche),
+      /**
+       * Il passaggio di stato viene annotato qui e non nelle pagine: così
+       * ogni punto dell'applicazione che cambia lo stato alimenta la
+       * cronologia senza doversene ricordare.
+       */
+      aggiornaRiparazione: (id, modifiche) => {
+        const evento = {
+          id: nuovoId('evt'),
+          istante: new Date().toISOString(),
+        }
+        setDb((precedente) => ({
+          ...precedente,
+          riparazioni: precedente.riparazioni.map((voce) => {
+            if (voce.id !== id) return voce
+            const aggiornata = { ...voce, ...modifiche }
+            if (modifiche.stato === undefined || modifiche.stato === voce.stato) return aggiornata
+            return {
+              ...aggiornata,
+              storico: [...(voce.storico ?? []), { ...evento, da: voce.stato, a: modifiche.stato }],
+            }
+          }),
+        }))
+      },
       eliminaRiparazione: (id) => eliminaDa('riparazioni', id),
 
       aggiungiPreventivo: (preventivo) => {
@@ -311,26 +362,55 @@ export function GestionaleProvider({ children }: { children: ReactNode }) {
       },
       aggiornaArticolo: (id, modifiche) => aggiornaIn('magazzino', id, modifiche),
       eliminaArticolo: (id) => eliminaDa('magazzino', id),
-      muoviGiacenze: (movimenti) => {
-        if (movimenti.length === 0) return
+      muoviGiacenze: (richieste) => {
+        if (richieste.length === 0) return
+        // Identificativi e istante si calcolano fuori dall'aggiornamento, che
+        // React può rieseguire: devono restare gli stessi a ogni tentativo.
+        const istante = new Date().toISOString()
+        const preparate = richieste.map((richiesta) => ({ ...richiesta, id: nuovoId('mov') }))
+
         setDb((p) => {
+          // Più righe possono riguardare lo stesso articolo: si sommano prima,
+          // altrimenti l'ultima scrittura sovrascriverebbe le precedenti.
           const somme = new Map<string, number>()
-          for (const movimento of movimenti) {
-            somme.set(
-              movimento.articoloId,
-              (somme.get(movimento.articoloId) ?? 0) + movimento.delta,
-            )
+          for (const movimento of preparate) {
+            somme.set(movimento.articoloId, (somme.get(movimento.articoloId) ?? 0) + movimento.delta)
           }
+
+          const giacenzeFinali = new Map<string, number>()
+          const magazzino = p.magazzino.map((articolo) => {
+            const delta = somme.get(articolo.id)
+            if (delta === undefined) return articolo
+            const quantita = Math.max(0, articolo.quantita + delta)
+            giacenzeFinali.set(articolo.id, quantita)
+            return { ...articolo, quantita }
+          })
+
+          const nuovi: MovimentoMagazzino[] = preparate
+            // Un articolo eliminato non ha più giacenza da registrare.
+            .filter((movimento) => giacenzeFinali.has(movimento.articoloId))
+            .map((movimento) => ({
+              id: movimento.id,
+              articoloId: movimento.articoloId,
+              istante,
+              delta: movimento.delta,
+              giacenzaFinale: giacenzeFinali.get(movimento.articoloId) as number,
+              causale: movimento.causale,
+              riferimentoId: movimento.riferimentoId,
+              riferimento: movimento.riferimento,
+            }))
+
           return {
             ...p,
-            magazzino: p.magazzino.map((articolo) => {
-              const delta = somme.get(articolo.id)
-              if (delta === undefined) return articolo
-              return { ...articolo, quantita: Math.max(0, articolo.quantita + delta) }
-            }),
+            magazzino,
+            movimenti: [...nuovi, ...p.movimenti].slice(0, MAX_MOVIMENTI),
           }
         })
       },
+      movimentiArticolo: (articoloId) =>
+        db.movimenti
+          .filter((movimento) => movimento.articoloId === articoloId)
+          .sort((a, b) => b.istante.localeCompare(a.istante)),
 
       aggiungiOrdine: (ordine) => {
         const nuovo: OrdineFornitore = {

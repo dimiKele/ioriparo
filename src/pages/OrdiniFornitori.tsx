@@ -28,7 +28,7 @@ import {
   Tr,
 } from '@/components/ui/Tabella'
 import { useIntestazione } from '@/components/layout/intestazione'
-import { useGestionale, nuovoId } from '@/data/store'
+import { useGestionale, nuovoId, type RichiestaMovimento } from '@/data/store'
 import { useElenco } from '@/lib/useElenco'
 import { totaleRighe } from '@/lib/calcoli'
 import { esportaCsv, nomeFileConData, numeroCsv } from '@/lib/esporta'
@@ -248,13 +248,19 @@ export function OrdiniFornitori() {
    */
   function confermaRicezione(ordine: OrdineFornitore) {
     if (!ricezione) return
-    const movimenti: Array<{ articoloId: string; delta: number }> = []
+    const movimenti: RichiestaMovimento[] = []
 
     const righe = ordine.righe.map((riga) => {
       const quantita = Number.parseInt(ricezione[riga.id] ?? '0', 10)
       const delta = Number.isFinite(quantita) ? Math.max(0, Math.min(quantita, mancanti(riga))) : 0
       if (delta > 0 && riga.articoloId) {
-        movimenti.push({ articoloId: riga.articoloId, delta })
+        movimenti.push({
+          articoloId: riga.articoloId,
+          delta,
+          causale: 'carico_ordine',
+          riferimentoId: ordine.id,
+          riferimento: `Ordine ${ordine.numero}`,
+        })
         // Il costo di magazzino si allinea all'ultimo acquisto effettivo.
         if (riga.prezzoUnitario > 0) {
           aggiornaArticolo(riga.articoloId, { prezzoAcquisto: riga.prezzoUnitario })
@@ -280,7 +286,13 @@ export function OrdiniFornitori() {
   function stornaRicezione(ordine: OrdineFornitore) {
     const movimenti = ordine.righe
       .filter((riga) => riga.articoloId && ricevuti(riga) > 0)
-      .map((riga) => ({ articoloId: riga.articoloId as string, delta: -ricevuti(riga) }))
+      .map((riga) => ({
+        articoloId: riga.articoloId as string,
+        delta: -ricevuti(riga),
+        causale: 'storno_ordine' as const,
+        riferimentoId: ordine.id,
+        riferimento: `Ordine ${ordine.numero}`,
+      }))
     muoviGiacenze(movimenti)
 
     const modifiche = {

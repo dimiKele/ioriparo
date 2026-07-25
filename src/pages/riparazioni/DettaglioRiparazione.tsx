@@ -23,9 +23,9 @@ import { Tabella, TabellaHead, Td, Th, Tr } from '@/components/ui/Tabella'
 import { AnteprimaStampa } from '@/components/stampa/AnteprimaStampa'
 import { DocumentoScheda } from '@/components/stampa/DocumentoScheda'
 import { useIntestazione } from '@/components/layout/intestazione'
-import { useGestionale, nuovoId } from '@/data/store'
+import { useGestionale, nuovoId, type RichiestaMovimento } from '@/data/store'
 import { imponibile, saldoRiparazione, scorporoIva, totaleRiparazione } from '@/lib/calcoli'
-import { formatData, formatEuro, linkWhatsApp, oggiISO } from '@/lib/format'
+import { formatData, formatDataOra, formatEuro, linkWhatsApp, oggiISO } from '@/lib/format'
 import { dataPiuGiorni, righeDaRiparazione } from '@/lib/documenti'
 import { ORDINE_STATI, STATI_RIPARAZIONE, TIPI_DISPOSITIVO } from '@/lib/stati'
 import type { RigaIntervento, StatoRiparazione } from '@/types'
@@ -184,11 +184,19 @@ export function DettaglioRiparazione() {
 
     // Il ricambio montato esce dal magazzino: senza questo movimento le
     // giacenze non calano mai e gli avvisi di sotto scorta non arrivano.
-    const movimenti: Array<{ articoloId: string; delta: number }> = []
+    const riferimento = { riferimentoId: riparazione.id, riferimento: `Scheda ${riparazione.codice}` }
+    const movimenti: RichiestaMovimento[] = []
     if (precedente?.articoloId) {
-      movimenti.push({ articoloId: precedente.articoloId, delta: precedente.quantita })
+      movimenti.push({
+        articoloId: precedente.articoloId,
+        delta: precedente.quantita,
+        causale: 'reso_riparazione',
+        ...riferimento,
+      })
     }
-    if (articoloId) movimenti.push({ articoloId, delta: -quantita })
+    if (articoloId) {
+      movimenti.push({ articoloId, delta: -quantita, causale: 'consumo_riparazione', ...riferimento })
+    }
     muoviGiacenze(movimenti)
 
     chiudiRiga()
@@ -237,7 +245,15 @@ export function DettaglioRiparazione() {
     })
     // Il ricambio rimosso torna disponibile a magazzino.
     if (riga?.articoloId) {
-      muoviGiacenze([{ articoloId: riga.articoloId, delta: riga.quantita }])
+      muoviGiacenze([
+        {
+          articoloId: riga.articoloId,
+          delta: riga.quantita,
+          causale: 'reso_riparazione',
+          riferimentoId: riparazione.id,
+          riferimento: `Scheda ${riparazione.codice}`,
+        },
+      ])
     }
   }
 
@@ -576,6 +592,32 @@ export function DettaglioRiparazione() {
               <p className="mt-3 text-sm text-ink-faint">Cliente non disponibile.</p>
             )}
           </Card>
+
+          {riparazione.storico && riparazione.storico.length > 0 && (
+            <Card className="print:hidden">
+              <CardHeader titolo="Cronologia" />
+              <ol className="mt-3 space-y-3">
+                {[...riparazione.storico].reverse().map((evento) => (
+                  <li key={evento.id} className="flex gap-3">
+                    <span
+                      className="mt-1.5 size-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: STATI_RIPARAZIONE[evento.a].colore }}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] text-ink">
+                        {evento.da
+                          ? `Da ${STATI_RIPARAZIONE[evento.da].label} a ${STATI_RIPARAZIONE[evento.a].label}`
+                          : (evento.nota ?? STATI_RIPARAZIONE[evento.a].label)}
+                      </span>
+                      <span className="block text-[11px] text-ink-faint">
+                        {formatDataOra(evento.istante)}
+                      </span>
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </Card>
+          )}
 
           {riparazione.foto && riparazione.foto.length > 0 && (
             <Card>
