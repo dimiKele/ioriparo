@@ -1,4 +1,7 @@
+import { oggiISO } from './format'
 import type {
+  Fattura,
+  Preventivo,
   StatoFattura,
   StatoImpianto,
   StatoOrdine,
@@ -136,6 +139,30 @@ export const STATI_FATTURA: Record<StatoFattura, ConfigStato> = {
     colore: '#94a3b8',
     icona: 'text-slate-300 bg-slate-500/15',
   },
+}
+
+/**
+ * Stato effettivo di una fattura.
+ *
+ * «Scaduta» è una condizione temporale, non un dato da aggiornare a mano:
+ * senza questa derivazione una fattura non pagata resta «emessa» per sempre e
+ * non compare in nessun sollecito.
+ */
+export function statoFatturaEffettivo(fattura: Fattura, oggi = oggiISO()): StatoFattura {
+  if (fattura.stato === 'pagata' || fattura.stato === 'annullata') return fattura.stato
+  if (fattura.scadenza && fattura.scadenza < oggi) return 'scaduta'
+  return 'emessa'
+}
+
+/** Stato effettivo di un preventivo: oltre la validità è scaduto. */
+export function statoPreventivoEffettivo(
+  preventivo: Preventivo,
+  oggi = oggiISO(),
+): StatoPreventivo {
+  if (preventivo.stato === 'accettato' || preventivo.stato === 'rifiutato') return preventivo.stato
+  if (preventivo.stato === 'bozza') return 'bozza'
+  if (preventivo.validoFino && preventivo.validoFino < oggi) return 'scaduto'
+  return 'inviato'
 }
 
 export const STATI_ORDINE: Record<StatoOrdine, ConfigStato> = {

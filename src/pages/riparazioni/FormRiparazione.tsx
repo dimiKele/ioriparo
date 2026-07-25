@@ -1,11 +1,12 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Camera,
+  Link2Off,
+  Loader2,
   MessageCircle,
   Plus,
   Printer,
-  ScanLine,
   Search,
   Upload,
   UserCheck,
@@ -26,7 +27,8 @@ import {
 import { Modal } from '@/components/ui/Modal'
 import { SignaturePad } from '@/components/ui/SignaturePad'
 import { useGestionale } from '@/data/store'
-import { oggiISO } from '@/lib/format'
+import { linkWhatsApp, oggiISO } from '@/lib/format'
+import { comprimiImmagine, formatPeso, pesoDataUrl } from '@/lib/immagini'
 import {
   MARCHE_PER_TIPO,
   ORDINE_STATI,
@@ -165,14 +167,34 @@ export function FormRiparazione({
   const [sceltaCliente, setSceltaCliente] = useState(false)
   const [ricercaCliente, setRicercaCliente] = useState('')
   const [modoFirma, setModoFirma] = useState<'schermo' | 'carica'>('schermo')
+  const [elaborazioneFoto, setElaborazioneFoto] = useState(false)
+  const [erroreFoto, setErroreFoto] = useState('')
+  const [modificato, setModificato] = useState(false)
   const inputFoto = useRef<HTMLInputElement>(null)
   const inputFirma = useRef<HTMLInputElement>(null)
 
+  // Un'accettazione può richiedere minuti di lavoro, foto e firma del cliente:
+  // chiudere la scheda per sbaglio non deve far perdere tutto in silenzio.
+  useEffect(() => {
+    if (!modificato) return
+    const avvisa = (evento: BeforeUnloadEvent) => evento.preventDefault()
+    window.addEventListener('beforeunload', avvisa)
+    return () => window.removeEventListener('beforeunload', avvisa)
+  }, [modificato])
+
   function aggiorna<K extends keyof DatiForm>(campo: K, valore: DatiForm[K]) {
     setDati((precedenti) => ({ ...precedenti, [campo]: valore }))
+    setModificato(true)
     if (errori[campo as string]) {
       setErrori(({ [campo as string]: _rimosso, ...resto }) => resto)
     }
+  }
+
+  function annulla() {
+    if (modificato && !window.confirm('Vuoi uscire? Le modifiche non salvate andranno perse.')) {
+      return
+    }
+    navigate(-1)
   }
 
   const clientiFiltrati = useMemo(() => {
@@ -196,38 +218,79 @@ export function FormRiparazione({
       citta: cliente.citta ?? '',
       cap: cliente.cap ?? '',
     }))
+    setModificato(true)
     setSceltaCliente(false)
     setRicercaCliente('')
   }
 
-  function leggiFile(file: File): Promise<string> {
-    return new Promise((risolvi) => {
-      const lettore = new FileReader()
-      lettore.onload = () => risolvi(String(lettore.result))
-      lettore.readAsDataURL(file)
-    })
+  /**
+   * Sgancia la scheda dall'anagrafica: i dati inseriti creeranno un cliente
+   * nuovo invece di aggiornare quello collegato. È una scelta esplicita,
+   * perché correggere un refuso nel nome deve aggiornare il cliente, non
+   * duplicarlo.
+   */
+  function scollegaCliente() {
+    setDati((precedenti) => ({ ...precedenti, clienteId: undefined }))
+    setModificato(true)
   }
 
   async function aggiungiFoto(files: FileList | null) {
     if (!files?.length) return
-    const nuove = await Promise.all([...files].slice(0, 6).map(leggiFile))
-    setDati((precedenti) => ({ ...precedenti, foto: [...precedenti.foto, ...nuove].slice(0, 8) }))
+    setErroreFoto('')
+    setElaborazioneFoto(true)
+    const errori: string[] = []
+    const nuove: string[] = []
+
+    for (const file of [...files].slice(0, 6)) {
+      try {
+        nuove.push(await comprimiImmagine(file))
+      } catch (errore) {
+        errori.push(errore instanceof Error ? errore.message : `«${file.name}» non caricata.`)
+      }
+    }
+
+    if (nuove.length > 0) {
+      setDati((precedenti) => ({ ...precedenti, foto: [...precedenti.foto, ...nuove].slice(0, 8) }))
+      setModificato(true)
+    }
+    setErroreFoto(errori.join(' '))
+    setElaborazioneFoto(false)
   }
 
   async function caricaFirma(files: FileList | null) {
-    if (!files?.length) return
-    aggiorna('firmaCliente', await leggiFile(files[0]))
+    const file = files?.[0]
+    if (!file) return
+    try {
+      aggiorna('firmaCliente', await comprimiImmagine(file))
+    } catch (errore) {
+      setErroreFoto(errore instanceof Error ? errore.message : 'Firma non caricata.')
+    }
   }
 
   function valida(): boolean {
     const nuoviErrori: Record<string, string> = {}
     if (!dati.nomeCliente.trim()) nuoviErrori.nomeCliente = 'Indica il nome del cliente'
-    if (!dati.telefono.trim()) nuoviErrori.telefono = 'Indica un recapito telefonico'
+    if (!dati.telefono.trim()) {
+      nuoviErrori.telefono = 'Indica un recapito telefonico'
+    } else if (dati.telefono.replace(/\D/g, '').length < 6) {
+      nuoviErrori.telefono = 'Il numero di telefono non sembra completo'
+    }
+    if (dati.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(dati.email.trim())) {
+      nuoviErrori.email = 'Indirizzo email non valido'
+    }
     if (!dati.marca.trim()) nuoviErrori.marca = 'Seleziona la marca'
     if (!dati.modello.trim()) nuoviErrori.modello = 'Indica il modello'
     if (!dati.difettoSegnalato.trim()) nuoviErrori.difettoSegnalato = 'Descrivi il difetto segnalato'
+    // Senza data di accettazione la scheda sparisce da ogni filtro per periodo.
+    if (!dati.dataAccettazione) {
+      nuoviErrori.dataAccettazione = 'Indica la data di accettazione'
+    }
     if (dati.consegnaPrevista && dati.consegnaPrevista < dati.dataAccettazione) {
       nuoviErrori.consegnaPrevista = 'La consegna non può precedere l’accettazione'
+    }
+    const acconto = Number(dati.acconto.replace(',', '.'))
+    if (dati.acconto.trim() && (!Number.isFinite(acconto) || acconto < 0)) {
+      nuoviErrori.acconto = 'L’acconto non può essere negativo'
     }
     setErrori(nuoviErrori)
 
@@ -240,17 +303,23 @@ export function FormRiparazione({
 
   function salva(stampa: boolean) {
     if (!valida()) return
+    setModificato(false)
     onSalva(dati, stampa)
   }
+
+  const pesoFoto = dati.foto.reduce((somma, foto) => somma + pesoDataUrl(foto), 0)
 
   const marche = MARCHE_PER_TIPO[dati.tipoDispositivo]
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <Button onClick={() => navigate(-1)}>
+        <Button onClick={annulla}>
           <X size={15} />
           Annulla
+        </Button>
+        <Button variante="secondario" onClick={() => salva(false)}>
+          Salva
         </Button>
         <Button variante="primario" onClick={() => salva(true)}>
           <Printer size={15} />
@@ -267,46 +336,46 @@ export function FormRiparazione({
                 <Campo etichetta="Nome e Cognome" obbligatorio errore={errori.nomeCliente}>
                   <Input
                     value={dati.nomeCliente}
-                    onChange={(e) => {
-                      aggiorna('nomeCliente', e.target.value)
-                      // Modificando il nome si scollega il cliente selezionato.
-                      if (dati.clienteId) aggiorna('clienteId', undefined)
-                    }}
+                    onChange={(e) => aggiorna('nomeCliente', e.target.value)}
                     placeholder="Mario Rossi"
                   />
                 </Campo>
               </div>
 
-              <Campo etichetta="Telefono" obbligatorio errore={errori.telefono}>
-                <Input
-                  value={dati.telefono}
-                  onChange={(e) => aggiorna('telefono', e.target.value)}
-                  placeholder="333 1234567"
-                  inputMode="tel"
-                  iconaDestra={
-                    dati.telefono ? (
-                      <a
-                        href={`https://wa.me/39${dati.telefono.replace(/\D/g, '')}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        title="Scrivi su WhatsApp"
-                        className="text-emerald-400 hover:text-emerald-300"
-                      >
-                        <MessageCircle size={16} />
-                      </a>
-                    ) : undefined
-                  }
-                />
-              </Campo>
+              <div data-errore={Boolean(errori.telefono)}>
+                <Campo etichetta="Telefono" obbligatorio errore={errori.telefono}>
+                  <Input
+                    value={dati.telefono}
+                    onChange={(e) => aggiorna('telefono', e.target.value)}
+                    placeholder="333 1234567"
+                    inputMode="tel"
+                    iconaDestra={
+                      linkWhatsApp(dati.telefono) ? (
+                        <a
+                          href={linkWhatsApp(dati.telefono)}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="Scrivi su WhatsApp"
+                          className="text-emerald-400 hover:text-emerald-300"
+                        >
+                          <MessageCircle size={16} />
+                        </a>
+                      ) : undefined
+                    }
+                  />
+                </Campo>
+              </div>
 
-              <Campo etichetta="Email">
-                <Input
-                  type="email"
-                  value={dati.email}
-                  onChange={(e) => aggiorna('email', e.target.value)}
-                  placeholder="mario.rossi@email.com"
-                />
-              </Campo>
+              <div data-errore={Boolean(errori.email)}>
+                <Campo etichetta="Email" errore={errori.email}>
+                  <Input
+                    type="email"
+                    value={dati.email}
+                    onChange={(e) => aggiorna('email', e.target.value)}
+                    placeholder="mario.rossi@email.com"
+                  />
+                </Campo>
+              </div>
 
               <Campo etichetta="Indirizzo">
                 <Input
@@ -339,9 +408,24 @@ export function FormRiparazione({
                 Seleziona cliente esistente
               </Button>
 
-              {dati.clienteId && (
-                <p className="text-[11px] text-emerald-400">
-                  Collegato a un cliente esistente in anagrafica.
+              {dati.clienteId ? (
+                <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2.5">
+                  <p className="text-[11px] text-emerald-300">
+                    Collegato a un cliente in anagrafica: le correzioni qui sopra ne aggiornano
+                    la scheda.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={scollegaCliente}
+                    className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-semibold text-ink-muted underline underline-offset-2 transition-colors hover:text-ink"
+                  >
+                    <Link2Off size={12} />
+                    Scollega e registra un nuovo cliente
+                  </button>
+                </div>
+              ) : (
+                <p className="text-[11px] text-ink-faint">
+                  Al salvataggio verrà creata una nuova anagrafica cliente.
                 </p>
               )}
             </div>
@@ -385,13 +469,15 @@ export function FormRiparazione({
                 />
               </Campo>
 
-              <Campo etichetta="Data accettazione">
-                <Input
-                  type="date"
-                  value={dati.dataAccettazione}
-                  onChange={(e) => aggiorna('dataAccettazione', e.target.value)}
-                />
-              </Campo>
+              <div data-errore={Boolean(errori.dataAccettazione)}>
+                <Campo etichetta="Data accettazione" obbligatorio errore={errori.dataAccettazione}>
+                  <Input
+                    type="date"
+                    value={dati.dataAccettazione}
+                    onChange={(e) => aggiorna('dataAccettazione', e.target.value)}
+                  />
+                </Campo>
+              </div>
 
               <Campo etichetta="Consegna prevista" errore={errori.consegnaPrevista}>
                 <InputData
@@ -402,14 +488,14 @@ export function FormRiparazione({
                 />
               </Campo>
 
-              <Campo etichetta="Acconto (€)" className="col-span-2">
+              <Campo etichetta="Acconto (€)" className="col-span-2" errore={errori.acconto}>
                 <Input
                   type="number"
                   min={0}
                   step="0.01"
                   value={dati.acconto}
                   onChange={(e) => aggiorna('acconto', e.target.value)}
-                  placeholder="0,00"
+                  placeholder="0.00"
                 />
               </Campo>
             </div>
@@ -479,7 +565,6 @@ export function FormRiparazione({
                   value={dati.imei}
                   onChange={(e) => aggiorna('imei', e.target.value)}
                   placeholder="352099114587632"
-                  iconaDestra={<ScanLine size={16} />}
                 />
               </Campo>
 
@@ -501,10 +586,17 @@ export function FormRiparazione({
               <button
                 type="button"
                 onClick={() => inputFoto.current?.click()}
-                className="flex aspect-3/4 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-line-soft bg-surface-2 text-ink-faint transition-colors hover:border-brand hover:text-ink"
+                disabled={elaborazioneFoto || dati.foto.length >= 8}
+                className="flex aspect-3/4 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-line-soft bg-surface-2 text-ink-faint transition-colors hover:border-brand hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <Plus size={18} />
-                <span className="text-[10px] leading-tight">Aggiungi foto</span>
+                {elaborazioneFoto ? (
+                  <Loader2 size={18} className="animate-spin" />
+                ) : (
+                  <Plus size={18} />
+                )}
+                <span className="text-[10px] leading-tight">
+                  {elaborazioneFoto ? 'Elaboro…' : 'Aggiungi foto'}
+                </span>
               </button>
 
               {dati.foto.map((foto, indice) => (
@@ -547,7 +639,10 @@ export function FormRiparazione({
             <p className="mt-2 flex items-center gap-1.5 text-[11px] text-ink-faint">
               <Camera size={12} />
               Documenta graffi e ammaccature prima dell'intervento.
+              {dati.foto.length > 0 && ` ${dati.foto.length}/8 · ${formatPeso(pesoFoto)}`}
             </p>
+
+            {erroreFoto && <p className="mt-1 text-[11px] text-rose-400">{erroreFoto}</p>}
           </SezioneForm>
         </div>
 
@@ -681,7 +776,7 @@ export function FormRiparazione({
       </div>
 
       <div className="flex flex-wrap justify-end gap-2">
-        <Button onClick={() => navigate(-1)}>Annulla</Button>
+        <Button onClick={annulla}>Annulla</Button>
         <Button variante="secondario" onClick={() => salva(false)}>
           Salva
         </Button>

@@ -1,6 +1,7 @@
-import { useEffect, type ReactNode } from 'react'
+import { type ReactNode } from 'react'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { useModale } from '@/lib/useModale'
 
 /** Finestra modale con chiusura da ESC e da click sullo sfondo. */
 export function Modal({
@@ -20,18 +21,7 @@ export function Modal({
   piede?: ReactNode
   larghezza?: 'sm' | 'md' | 'lg'
 }) {
-  useEffect(() => {
-    if (!aperta) return
-    const onTasto = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onChiudi()
-    }
-    document.addEventListener('keydown', onTasto)
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.removeEventListener('keydown', onTasto)
-      document.body.style.overflow = ''
-    }
-  }, [aperta, onChiudi])
+  const contenitore = useModale(aperta, onChiudi)
 
   if (!aperta) return null
 
@@ -45,6 +35,7 @@ export function Modal({
         aria-hidden
       />
       <div
+        ref={contenitore}
         role="dialog"
         aria-modal="true"
         aria-label={titolo}

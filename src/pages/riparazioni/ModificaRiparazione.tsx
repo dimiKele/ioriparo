@@ -47,8 +47,12 @@ export function ModificaRiparazione() {
       ...modifiche,
       // Gli interventi si gestiscono dalla scheda, non dal modulo di accettazione.
       interventi: riparazione.interventi,
+      // La data di consegna già registrata non va cancellata riportando
+      // indietro lo stato: è un dato storico che serve alle statistiche.
       dataConsegna:
-        dati.stato === 'consegnato' ? (riparazione.dataConsegna ?? oggiISO()) : undefined,
+        dati.stato === 'consegnato'
+          ? (riparazione.dataConsegna ?? oggiISO())
+          : riparazione.dataConsegna,
     })
 
     navigate(`/riparazioni/${riparazione.id}${stampa ? '?stampa=1' : ''}`)

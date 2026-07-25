@@ -38,7 +38,8 @@ import { useIntestazione } from '@/components/layout/intestazione'
 import { useGestionale } from '@/data/store'
 import { contaPerStato } from '@/data/metriche'
 import { useElenco } from '@/lib/useElenco'
-import { esportaCsv, nomeFileConData } from '@/lib/esporta'
+import { esportaCsv, nomeFileConData, numeroCsv } from '@/lib/esporta'
+import { totaleRiparazione } from '@/lib/calcoli'
 import { formatData } from '@/lib/format'
 import { ORDINE_STATI, STATI_RIPARAZIONE, TIPI_DISPOSITIVO } from '@/lib/stati'
 import type { Riparazione, StatoRiparazione, TipoDispositivo } from '@/types'
@@ -62,51 +63,100 @@ export function RiparazioniList() {
   const navigate = useNavigate()
   const [parametri, setParametri] = useSearchParams()
 
+  // I filtri vivono nell'URL: tornando dal dettaglio l'elenco è com'era, e la
+  // ricerca fatta al banco si può passare a un collega con un collegamento.
   const statoAttivo = (parametri.get('stato') ?? 'tutti') as StatoRiparazione | 'tutti'
-  const [ricerca, setRicerca] = useState('')
-  const [tipo, setTipo] = useState<TipoDispositivo | 'tutti'>('tutti')
-  const [dataDa, setDataDa] = useState('')
-  const [dataA, setDataA] = useState('')
+  const ricerca = parametri.get('q') ?? ''
+  const tipo = (parametri.get('tipo') ?? 'tutti') as TipoDispositivo | 'tutti'
+  const dataDa = parametri.get('da') ?? ''
+  const dataA = parametri.get('a') ?? ''
+  const tecnico = parametri.get('tecnico') ?? 'tutti'
+
   const [filtriAvanzati, setFiltriAvanzati] = useState(false)
-  const [tecnico, setTecnico] = useState('tutti')
   const [daEliminare, setDaEliminare] = useState<Riparazione | null>(null)
 
-  const conteggi = useMemo(() => contaPerStato(db), [db])
+  /** Scrive un filtro nella query string, rimuovendolo quando torna al valore neutro. */
+  function impostaFiltro(chiave: string, valore: string, neutro = '') {
+    const nuovi = new URLSearchParams(parametri)
+    if (valore === neutro || valore === 'tutti') nuovi.delete(chiave)
+    else nuovi.set(chiave, valore)
+    setParametri(nuovi, { replace: true })
+    elenco.azzeraPagina()
+  }
+
+  const setRicerca = (valore: string) => impostaFiltro('q', valore)
+  const setTipo = (valore: string) => impostaFiltro('tipo', valore)
+  const setDataDa = (valore: string) => impostaFiltro('da', valore)
+  const setDataA = (valore: string) => impostaFiltro('a', valore)
+  const setTecnico = (valore: string) => impostaFiltro('tecnico', valore)
+
+  const clienti = useMemo(
+    () => new Map(db.clienti.map((cliente) => [cliente.id, cliente])),
+    [db.clienti],
+  )
 
   const tecnici = useMemo(
     () => [...new Set(db.riparazioni.map((r) => r.tecnico).filter(Boolean))] as string[],
     [db.riparazioni],
   )
 
-  const filtrate = useMemo(() => {
-    const termine = ricerca.trim().toLowerCase()
+  /**
+   * Righe con i campi derivati necessari all'ordinamento: il nome del cliente
+   * (l'id è opaco) e la posizione dello stato nel flusso di lavorazione
+   * (l'ordine alfabetico dell'enum non ha alcun significato per l'operatore).
+   */
+  const arricchite = useMemo(
+    () =>
+      db.riparazioni.map((riparazione) => {
+        const cliente = clienti.get(riparazione.clienteId)
+        return {
+          ...riparazione,
+          nomeCliente: cliente?.nome ?? '',
+          telefonoCliente: cliente?.telefono ?? '',
+          ordineStato: ORDINE_STATI.indexOf(riparazione.stato),
+        }
+      }),
+    [db.riparazioni, clienti],
+  )
 
-    return db.riparazioni.filter((riparazione) => {
-      if (statoAttivo !== 'tutti' && riparazione.stato !== statoAttivo) return false
+  /** Filtri comuni a tutti gli stati: servono a contare le pastiglie sul filtrato. */
+  const senzaStato = useMemo(() => {
+    const termine = ricerca.trim().toLowerCase()
+    return arricchite.filter((riparazione) => {
       if (tipo !== 'tutti' && riparazione.tipoDispositivo !== tipo) return false
       if (tecnico !== 'tutti' && riparazione.tecnico !== tecnico) return false
       if (dataDa && riparazione.dataAccettazione < dataDa) return false
       if (dataA && riparazione.dataAccettazione > dataA) return false
 
       if (termine) {
-        const cliente = db.clienti.find((c) => c.id === riparazione.clienteId)
         const testo = [
           riparazione.codice,
           riparazione.marca,
           riparazione.modello,
           riparazione.imei ?? '',
           riparazione.difettoSegnalato,
-          cliente?.nome ?? '',
-          cliente?.telefono ?? '',
+          riparazione.nomeCliente,
+          riparazione.telefonoCliente,
         ]
           .join(' ')
           .toLowerCase()
         if (!testo.includes(termine)) return false
       }
-
       return true
     })
-  }, [db.riparazioni, db.clienti, statoAttivo, tipo, tecnico, dataDa, dataA, ricerca])
+  }, [arricchite, tipo, tecnico, dataDa, dataA, ricerca])
+
+  // I conteggi seguono i filtri attivi: mostrare i totali globali accanto a una
+  // tabella filtrata fa sembrare che manchino delle righe.
+  const conteggi = useMemo(() => contaPerStato({ ...db, riparazioni: senzaStato }), [db, senzaStato])
+
+  const filtrate = useMemo(
+    () =>
+      statoAttivo === 'tutti'
+        ? senzaStato
+        : senzaStato.filter((riparazione) => riparazione.stato === statoAttivo),
+    [senzaStato, statoAttivo],
+  )
 
   const elenco = useElenco(filtrate, {
     perPaginaIniziale: 10,
@@ -136,25 +186,28 @@ export function RiparazioniList() {
         'Data accettazione',
         'Consegna prevista',
         'Tecnico',
+        'Totale',
       ],
-      filtrate.map((r) => {
-        const cliente = db.clienti.find((c) => c.id === r.clienteId)
-        return [
-          r.codice,
-          `${r.marca} ${r.modello}`,
-          TIPI_DISPOSITIVO[r.tipoDispositivo],
-          r.imei,
-          cliente?.nome,
-          cliente?.telefono,
-          r.difettoSegnalato,
-          STATI_RIPARAZIONE[r.stato].label,
-          formatData(r.dataAccettazione),
-          formatData(r.consegnaPrevista),
-          r.tecnico,
-        ]
-      }),
+      filtrate.map((r) => [
+        r.codice,
+        `${r.marca} ${r.modello}`,
+        TIPI_DISPOSITIVO[r.tipoDispositivo],
+        r.imei,
+        r.nomeCliente,
+        r.telefonoCliente,
+        r.difettoSegnalato,
+        STATI_RIPARAZIONE[r.stato].label,
+        formatData(r.dataAccettazione),
+        formatData(r.consegnaPrevista),
+        r.tecnico,
+        numeroCsv(totaleRiparazione(r)),
+      ]),
     )
   }
+
+  const numeroFiltri = [ricerca, dataDa, dataA]
+    .filter(Boolean)
+    .concat(tipo !== 'tutti' ? [tipo] : [], tecnico !== 'tutti' ? [tecnico] : []).length
 
   const filtriAttivi =
     ricerca || tipo !== 'tutti' || dataDa || dataA || tecnico !== 'tutti' || statoAttivo !== 'tutti'
@@ -209,7 +262,6 @@ export function RiparazioniList() {
               value={ricerca}
               onChange={(e) => {
                 setRicerca(e.target.value)
-                elenco.azzeraPagina()
               }}
               placeholder="Cerca…"
               aria-label="Cerca riparazione"
@@ -234,8 +286,7 @@ export function RiparazioniList() {
           <Select
             value={tipo}
             onChange={(e) => {
-              setTipo(e.target.value as TipoDispositivo | 'tutti')
-              elenco.azzeraPagina()
+              setTipo(e.target.value)
             }}
             aria-label="Filtra per tipo di dispositivo"
             className="lg:w-44"
@@ -253,7 +304,6 @@ export function RiparazioniList() {
               value={dataDa}
               onChange={(e) => {
                 setDataDa(e.target.value)
-                elenco.azzeraPagina()
               }}
               placeholder="Data da"
               aria-label="Data accettazione da"
@@ -264,7 +314,6 @@ export function RiparazioniList() {
               value={dataA}
               onChange={(e) => {
                 setDataA(e.target.value)
-                elenco.azzeraPagina()
               }}
               placeholder="Data a"
               aria-label="Data accettazione a"
@@ -272,14 +321,33 @@ export function RiparazioniList() {
             />
           </div>
 
-          <Button
-            onClick={() => setFiltriAvanzati((aperto) => !aperto)}
-            className="lg:ml-auto"
-            variante={filtriAvanzati ? 'primario' : 'secondario'}
-          >
-            <SlidersHorizontal size={15} />
-            Filtri
-          </Button>
+          <div className="flex gap-2 lg:ml-auto">
+            {filtriAttivi && (
+              <Button
+                variante="fantasma"
+                onClick={() => {
+                  // Azzera in un colpo solo anche lo stato, che vive negli stessi parametri.
+                  setParametri({}, { replace: true })
+                  elenco.azzeraPagina()
+                }}
+              >
+                Azzera filtri
+              </Button>
+            )}
+            <Button
+              onClick={() => setFiltriAvanzati((aperto) => !aperto)}
+              variante={filtriAvanzati ? 'primario' : 'secondario'}
+            >
+              <SlidersHorizontal size={15} />
+              Filtri
+              {/* Il contatore rende visibili i filtri nascosti nel pannello. */}
+              {numeroFiltri > 0 && (
+                <span className="ml-1 inline-flex size-5 items-center justify-center rounded-full bg-brand text-[10px] font-bold text-white">
+                  {numeroFiltri}
+                </span>
+              )}
+            </Button>
+          </div>
         </div>
 
         {filtriAvanzati && (
@@ -290,7 +358,6 @@ export function RiparazioniList() {
                 value={tecnico}
                 onChange={(e) => {
                   setTecnico(e.target.value)
-                  elenco.azzeraPagina()
                 }}
                 className="w-48"
               >
@@ -303,21 +370,6 @@ export function RiparazioniList() {
               </Select>
             </label>
 
-            {filtriAttivi && (
-              <Button
-                variante="fantasma"
-                onClick={() => {
-                  setRicerca('')
-                  setTipo('tutti')
-                  setDataDa('')
-                  setDataA('')
-                  setTecnico('tutti')
-                  cambiaStato('tutti')
-                }}
-              >
-                Azzera filtri
-              </Button>
-            )}
           </div>
         )}
 
@@ -334,14 +386,14 @@ export function RiparazioniList() {
           />
         ) : (
           <>
-            <Tabella className="min-w-[1000px]">
+            <Tabella larghezzaMinima="sm:min-w-[1000px]">
               <TabellaHead>
                 <Th>ID</Th>
                 <Th>Dispositivo</Th>
                 <Th>
                   <button
                     type="button"
-                    onClick={() => elenco.ordinaPer('clienteId')}
+                    onClick={() => elenco.ordinaPer('nomeCliente')}
                     className="inline-flex items-center gap-1 uppercase hover:text-ink-muted"
                   >
                     Cliente
@@ -352,7 +404,7 @@ export function RiparazioniList() {
                 <Th>
                   <button
                     type="button"
-                    onClick={() => elenco.ordinaPer('stato')}
+                    onClick={() => elenco.ordinaPer('ordineStato')}
                     className="inline-flex items-center gap-1 uppercase hover:text-ink-muted"
                   >
                     Stato
@@ -375,17 +427,17 @@ export function RiparazioniList() {
 
               <tbody>
                 {elenco.visibili.map((riparazione) => {
-                  const cliente = db.clienti.find((c) => c.id === riparazione.clienteId)
+                  const cliente = clienti.get(riparazione.clienteId)
                   return (
                     <Tr
                       key={riparazione.id}
                       onClick={() => navigate(`/riparazioni/${riparazione.id}`)}
                     >
-                      <Td className="font-medium text-ink-muted whitespace-nowrap">
+                      <Td etichetta="ID" className="font-medium text-ink-muted whitespace-nowrap">
                         {riparazione.codice}
                       </Td>
 
-                      <Td>
+                      <Td etichetta="Dispositivo">
                         <span className="flex items-center gap-3">
                           <DeviceIcon tipo={riparazione.tipoDispositivo} />
                           <span className="min-w-0">
@@ -399,7 +451,11 @@ export function RiparazioniList() {
                             </span>
                             {riparazione.imei && (
                               <span className="block truncate text-[11px] text-ink-faint">
-                                {riparazione.imei.length > 14 ? 'IMEI' : 'Seriale'}:{' '}
+                                {/* L'IMEI è composto da 15 cifre: tutto il resto è un seriale. */}
+                                {/^\d{15}$/.test(riparazione.imei.replace(/\D/g, ''))
+                                  ? 'IMEI'
+                                  : 'Seriale'}
+                                :{' '}
                                 {riparazione.imei}
                               </span>
                             )}
@@ -407,7 +463,7 @@ export function RiparazioniList() {
                         </span>
                       </Td>
 
-                      <Td>
+                      <Td etichetta="Cliente">
                         <span className="block text-[13px] font-medium text-ink">
                           {cliente?.nome ?? '—'}
                         </span>
@@ -419,19 +475,22 @@ export function RiparazioniList() {
                         )}
                       </Td>
 
-                      <Td className="max-w-[200px] truncate text-[13px]">
+                      <Td
+                        etichetta="Difetto"
+                        className="max-w-[200px] truncate text-[13px] max-sm:max-w-none"
+                      >
                         {riparazione.difettoSegnalato}
                       </Td>
 
-                      <Td>
+                      <Td etichetta="Stato">
                         <BadgeStato stato={riparazione.stato} />
                       </Td>
 
-                      <Td className="text-[13px] whitespace-nowrap">
+                      <Td etichetta="Accettazione" className="text-[13px] whitespace-nowrap">
                         {formatData(riparazione.dataAccettazione)}
                       </Td>
 
-                      <Td className="text-[13px] whitespace-nowrap">
+                      <Td etichetta="Consegna" className="text-[13px] whitespace-nowrap">
                         {formatData(riparazione.consegnaPrevista)}
                       </Td>
 

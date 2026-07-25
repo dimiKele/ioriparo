@@ -19,7 +19,7 @@ import { useGestionale } from '@/data/store'
 import {
   andamentoIncassi,
   contaPerStato,
-  incassoDelMese,
+  incassiDelPeriodo,
   prodottiPiuVenduti,
   ricaviPerCategoria,
   riparazioniPerMese,
@@ -52,7 +52,11 @@ export function Statistiche() {
   const perMese = useMemo(() => riparazioniPerMese(db, 6), [db])
   const categorie = useMemo(() => ricaviPerCategoria(db, periodo), [db, periodo])
   const prodotti = useMemo(() => prodottiPiuVenduti(db, periodo, 8), [db, periodo])
-  const serieIncassi = useMemo(() => andamentoIncassi(db, '30g'), [db])
+  // Anche il grafico segue il periodo scelto: prima era fisso a 30 giorni.
+  const serieIncassi = useMemo(() => andamentoIncassi(db, periodo), [db, periodo])
+  const incassi = useMemo(() => incassiDelPeriodo(db, periodo), [db, periodo])
+  const daIncassare = useMemo(() => totaleDaIncassare(db), [db])
+  const magazzino = useMemo(() => valoreMagazzino(db), [db])
 
   const perTipo = useMemo(() => {
     const mappa = new Map<string, number>()
@@ -64,16 +68,6 @@ export function Statistiche() {
       .map(([nome, valore]) => ({ nome, valore }))
       .sort((a, b) => b.valore - a.valore)
   }, [db.riparazioni])
-
-  const ticketMedio = useMemo(() => {
-    const pagate = db.fatture.filter((f) => f.stato === 'pagata')
-    if (pagate.length === 0) return 0
-    const totale = pagate.reduce(
-      (somma, f) => somma + f.righe.reduce((s, r) => s + r.quantita * r.prezzoUnitario, 0),
-      0,
-    )
-    return totale / pagate.length
-  }, [db.fatture])
 
   return (
     <div className="space-y-4">
@@ -93,34 +87,36 @@ export function Statistiche() {
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Card>
           <p className="text-[10px] font-bold tracking-wider text-ink-faint uppercase">
-            Incasso del mese
+            Incassato nel periodo
           </p>
-          <p className="mt-1 text-xl font-bold text-ink">{formatEuro(incassoDelMese(db))}</p>
+          <p className="mt-1 text-xl font-bold text-ink">{formatEuro(incassi.incassato)}</p>
+          <p className="mt-0.5 text-[11px] text-ink-faint">{incassi.documenti} documenti</p>
         </Card>
         <Card>
           <p className="text-[10px] font-bold tracking-wider text-ink-faint uppercase">
             Scontrino medio
           </p>
-          <p className="mt-1 text-xl font-bold text-ink">{formatEuro(ticketMedio)}</p>
+          <p className="mt-1 text-xl font-bold text-ink">{formatEuro(incassi.scontrinoMedio)}</p>
+          <p className="mt-0.5 text-[11px] text-ink-faint">nel periodo selezionato</p>
         </Card>
         <Card>
           <p className="text-[10px] font-bold tracking-wider text-ink-faint uppercase">
             Da incassare
           </p>
-          <p className="mt-1 text-xl font-bold text-amber-400">
-            {formatEuro(totaleDaIncassare(db))}
-          </p>
+          <p className="mt-1 text-xl font-bold text-amber-400">{formatEuro(daIncassare)}</p>
+          <p className="mt-0.5 text-[11px] text-ink-faint">su tutto lo storico</p>
         </Card>
         <Card>
           <p className="text-[10px] font-bold tracking-wider text-ink-faint uppercase">
             Valore magazzino
           </p>
-          <p className="mt-1 text-xl font-bold text-ink">{formatEuro(valoreMagazzino(db))}</p>
+          <p className="mt-1 text-xl font-bold text-ink">{formatEuro(magazzino)}</p>
+          <p className="mt-0.5 text-[11px] text-ink-faint">a prezzo di acquisto</p>
         </Card>
       </div>
 
       <Card>
-        <CardHeader titolo="Incassi degli ultimi 30 giorni" />
+        <CardHeader titolo={`Incassi degli ultimi ${periodo} giorni`} />
         <div className="mt-4">
           <IncassiChart dati={serieIncassi} altezza={280} />
         </div>

@@ -1,3 +1,7 @@
+import {
+  FORMATO_FATTURA_PREDEFINITO,
+  FORMATO_PREVENTIVO_PREDEFINITO,
+} from '@/lib/documenti'
 import type {
   ArticoloMagazzino,
   Azienda,
@@ -508,7 +512,9 @@ function generaFatture(): Fattura[] {
         clienteId: cliente.id,
         data: dataISO,
         scadenza: iso(new Date(data.getTime() + 30 * MS_GIORNO)),
-        stato: pagata ? 'pagata' : giorno > 32 ? 'scaduta' : 'emessa',
+        // La soglia coincide con i 30 giorni di scadenza: altrimenti nascono
+        // fatture «emesse» con una data di scadenza già passata.
+        stato: pagata ? 'pagata' : giorno > 30 ? 'scaduta' : 'emessa',
         righe,
         iva: 22,
         metodoPagamento: pagata ? metodi[Math.floor(random() * metodi.length)] : undefined,
@@ -570,6 +576,8 @@ export const AZIENDA: Azienda = {
   ivaPredefinita: 22,
   giorniValiditaPreventivo: 30,
   prefissoCodice: `#${anno}-`,
+  formatoFattura: FORMATO_FATTURA_PREDEFINITO,
+  formatoPreventivo: FORMATO_PREVENTIVO_PREDEFINITO,
 }
 
 export function creaDatabaseIniziale(): DatabaseGestionale {

@@ -3,10 +3,37 @@ import { ChevronLeft, ChevronRight, Inbox } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Select } from './Form'
 
-export function Tabella({ children, className }: { children: ReactNode; className?: string }) {
+/**
+ * Tabella elenco.
+ *
+ * Sotto i 640px diventa un elenco di schede: `cn` è una semplice
+ * concatenazione, quindi la larghezza minima si governa con `larghezzaMinima`
+ * e non con una classe, che verrebbe sopraffatta da quella predefinita.
+ */
+export function Tabella({
+  children,
+  className,
+  larghezzaMinima = 'sm:min-w-[820px]',
+}: {
+  children: ReactNode
+  className?: string
+  /**
+   * Classe Tailwind con prefisso `sm:` per la larghezza minima da tablet in su.
+   * Va passata per intero perché Tailwind genera solo le classi che compaiono
+   * letteralmente nel codice.
+   */
+  larghezzaMinima?: string
+}) {
   return (
-    <div className="overflow-x-auto">
-      <table className={cn('w-full min-w-[820px] border-collapse text-sm', className)}>
+    <div className="overflow-x-auto max-sm:overflow-visible">
+      <table
+        className={cn(
+          'w-full border-collapse text-sm',
+          'max-sm:block max-sm:[&_tbody]:block',
+          larghezzaMinima,
+          className,
+        )}
+      >
         {children}
       </table>
     </div>
@@ -15,7 +42,7 @@ export function Tabella({ children, className }: { children: ReactNode; classNam
 
 export function TabellaHead({ children }: { children: ReactNode }) {
   return (
-    <thead>
+    <thead className="max-sm:hidden">
       <tr className="border-b border-line text-left">{children}</tr>
     </thead>
   )
@@ -57,9 +84,25 @@ export function Tr({
   return (
     <tr
       onClick={onClick}
+      // Una riga cliccabile deve essere attivabile anche da tastiera:
+      // senza questi attributi il dettaglio è raggiungibile solo col mouse.
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={
+        onClick
+          ? (evento) => {
+              if (evento.key !== 'Enter' && evento.key !== ' ') return
+              if (evento.target !== evento.currentTarget) return
+              evento.preventDefault()
+              onClick()
+            }
+          : undefined
+      }
       className={cn(
         'border-b border-line/70 transition-colors last:border-0 hover:bg-surface-2',
+        'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand',
         onClick && 'cursor-pointer',
+        'max-sm:mb-2 max-sm:block max-sm:rounded-lg max-sm:border max-sm:border-line max-sm:bg-surface-2 max-sm:p-2',
         className,
       )}
     >
@@ -72,10 +115,13 @@ export function Td({
   children,
   className,
   allineamento = 'left',
+  etichetta,
 }: {
   children: ReactNode
   className?: string
   allineamento?: 'left' | 'right' | 'center'
+  /** Nome della colonna, mostrato accanto al valore nella vista a schede. */
+  etichetta?: string
 }) {
   return (
     <td
@@ -83,9 +129,15 @@ export function Td({
         'px-4 py-3 align-middle text-ink-muted',
         allineamento === 'right' && 'text-right',
         allineamento === 'center' && 'text-center',
+        'max-sm:flex max-sm:items-baseline max-sm:justify-between max-sm:gap-3 max-sm:px-2 max-sm:py-1 max-sm:text-left',
         className,
       )}
     >
+      {etichetta && (
+        <span className="hidden text-[10px] font-bold tracking-wider text-ink-faint uppercase max-sm:block">
+          {etichetta}
+        </span>
+      )}
       {children}
     </td>
   )

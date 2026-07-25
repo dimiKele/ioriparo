@@ -142,6 +142,11 @@ export interface RigaOrdine {
   descrizione: string
   quantita: number
   prezzoUnitario: number
+  /**
+   * Pezzi già entrati in giacenza per questa riga. Consente le consegne
+   * parziali e impedisce di caricare due volte la stessa merce.
+   */
+  quantitaRicevuta?: number
 }
 
 export interface OrdineFornitore {
@@ -152,6 +157,11 @@ export interface OrdineFornitore {
   consegnaPrevista?: string
   stato: StatoOrdine
   righe: RigaOrdine[]
+  /**
+   * Data in cui la merce è stata caricata in magazzino. Presidia il carico
+   * una sola volta: finché è valorizzata l'ordine non viene ricaricato.
+   */
+  ricevutoIl?: string
 }
 
 export type TipoScadenza =
@@ -172,6 +182,8 @@ export interface Scadenza {
   data: string
   importo?: number
   completata: boolean
+  /** Impianto di cui questa scadenza è la manutenzione programmata. */
+  impiantoId?: string
 }
 
 export type StatoImpianto = 'attivo' | 'in_manutenzione' | 'da_verificare' | 'dismesso'
@@ -199,6 +211,10 @@ export interface Azienda {
   ivaPredefinita: number
   giorniValiditaPreventivo: number
   prefissoCodice: string
+  /** Modello del numero fattura: `{n}` progressivo, `{anno}` anno corrente. */
+  formatoFattura: string
+  /** Modello del numero preventivo, stessi segnaposto. */
+  formatoPreventivo: string
 }
 
 export interface DatabaseGestionale {

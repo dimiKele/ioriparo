@@ -1,9 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { AlertTriangle, CalendarClock, Check, CheckCircle2, Plus, Trash2 } from 'lucide-react'
+import {
+  AlertTriangle,
+  CalendarClock,
+  Check,
+  CheckCircle2,
+  Pencil,
+  Plus,
+  Trash2,
+} from 'lucide-react'
 import { Card, CardHeader } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
-import { Button } from '@/components/ui/Button'
+import { Button, IconButton } from '@/components/ui/Button'
 import { Campo, Checkbox, Input, Select, Textarea } from '@/components/ui/Form'
 import { StatChip } from '@/components/ui/StatCard'
 import { Modal } from '@/components/ui/Modal'
@@ -15,13 +23,29 @@ import { TIPI_SCADENZA } from '@/lib/stati'
 import { cn } from '@/lib/cn'
 import type { PrioritaScadenza, Scadenza, TipoScadenza } from '@/types'
 
-const VUOTO = {
-  titolo: '',
-  descrizione: '',
-  tipo: 'promemoria' as TipoScadenza,
-  priorita: 'normale' as PrioritaScadenza,
-  data: oggiISO(),
-  importo: '',
+interface DatiScadenza {
+  titolo: string
+  descrizione: string
+  tipo: TipoScadenza
+  priorita: PrioritaScadenza
+  data: string
+  importo: string
+}
+
+/**
+ * La data va calcolata al momento dell'apertura del modulo: un valore fissato
+ * all'avvio dell'applicazione proporrebbe la data di ieri a chi la tiene
+ * aperta oltre la mezzanotte, come accade su una postazione da banco.
+ */
+function datiVuoti(): DatiScadenza {
+  return {
+    titolo: '',
+    descrizione: '',
+    tipo: 'promemoria',
+    priorita: 'normale',
+    data: oggiISO(),
+    importo: '',
+  }
 }
 
 export function Scadenze() {
@@ -34,12 +58,14 @@ export function Scadenze() {
   const [parametri, setParametri] = useSearchParams()
 
   const [filtro, setFiltro] = useState<'aperte' | 'scadute' | 'completate' | 'tutte'>('aperte')
-  const [form, setForm] = useState<typeof VUOTO | null>(null)
+  const [form, setForm] = useState<DatiScadenza | null>(null)
+  const [inModifica, setInModifica] = useState<string | null>(null)
   const [errore, setErrore] = useState('')
+  const [daEliminare, setDaEliminare] = useState<Scadenza | null>(null)
 
   useEffect(() => {
     if (parametri.get('nuovo') === '1') {
-      setForm({ ...VUOTO })
+      setForm(datiVuoti())
       setParametri({}, { replace: true })
     }
   }, [parametri, setParametri])
@@ -63,32 +89,66 @@ export function Scadenze() {
     .filter((s) => !s.completata && s.importo)
     .reduce((somma, s) => somma + (s.importo ?? 0), 0)
 
+  function apriNuovo() {
+    setInModifica(null)
+    setErrore('')
+    setForm(datiVuoti())
+  }
+
+  function apriModifica(scadenza: Scadenza) {
+    setInModifica(scadenza.id)
+    setErrore('')
+    setForm({
+      titolo: scadenza.titolo,
+      descrizione: scadenza.descrizione ?? '',
+      tipo: scadenza.tipo,
+      priorita: scadenza.priorita,
+      data: scadenza.data,
+      importo: scadenza.importo !== undefined ? String(scadenza.importo) : '',
+    })
+  }
+
+  function chiudiForm() {
+    setForm(null)
+    setInModifica(null)
+    setErrore('')
+  }
+
   function salva() {
     if (!form) return
     if (!form.titolo.trim()) {
       setErrore('Indica un titolo per la scadenza.')
       return
     }
+    if (!form.data) {
+      setErrore('Indica la data di scadenza.')
+      return
+    }
     const importo = Number.parseFloat(form.importo.replace(',', '.'))
+    if (form.importo.trim() && (!Number.isFinite(importo) || importo < 0)) {
+      setErrore('L’importo non può essere negativo.')
+      return
+    }
 
-    aggiungiScadenza({
+    const dati = {
       titolo: form.titolo.trim(),
       descrizione: form.descrizione.trim() || undefined,
       tipo: form.tipo,
       priorita: form.priorita,
       data: form.data,
       importo: Number.isFinite(importo) ? importo : undefined,
-      completata: false,
-    })
+    }
 
-    setForm(null)
-    setErrore('')
+    if (inModifica) aggiornaScadenza(inModifica, dati)
+    else aggiungiScadenza({ ...dati, completata: false })
+
+    chiudiForm()
   }
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <Button variante="primario" onClick={() => setForm({ ...VUOTO })}>
+        <Button variante="primario" onClick={apriNuovo}>
           <Plus size={16} />
           Nuovo promemoria
         </Button>
@@ -96,8 +156,8 @@ export function Scadenze() {
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatChip
-          etichetta="Aperte"
-          valore={db.scadenze.filter((s) => !s.completata).length}
+          etichetta="In programma"
+          valore={db.scadenze.filter((s) => !s.completata && giorniAllaData(s.data) >= 0).length}
           icona={CalendarClock}
           colore="#2563eb"
           attivo={filtro === 'aperte'}
@@ -156,7 +216,8 @@ export function Scadenze() {
                 key={scadenza.id}
                 scadenza={scadenza}
                 onCompleta={(completata) => aggiornaScadenza(scadenza.id, { completata })}
-                onElimina={() => eliminaScadenza(scadenza.id)}
+                onModifica={() => apriModifica(scadenza)}
+                onElimina={() => setDaEliminare(scadenza)}
               />
             ))}
           </ul>
@@ -165,14 +226,11 @@ export function Scadenze() {
 
       <Modal
         aperta={form !== null}
-        titolo="Nuovo promemoria"
-        onChiudi={() => {
-          setForm(null)
-          setErrore('')
-        }}
+        titolo={inModifica ? 'Modifica promemoria' : 'Nuovo promemoria'}
+        onChiudi={chiudiForm}
         piede={
           <>
-            <Button onClick={() => setForm(null)}>Annulla</Button>
+            <Button onClick={chiudiForm}>Annulla</Button>
             <Button variante="primario" onClick={salva}>
               Salva promemoria
             </Button>
@@ -240,6 +298,33 @@ export function Scadenze() {
           </div>
         )}
       </Modal>
+
+      <Modal
+        aperta={daEliminare !== null}
+        titolo="Eliminare il promemoria?"
+        sottotitolo={daEliminare?.titolo}
+        onChiudi={() => setDaEliminare(null)}
+        larghezza="sm"
+        piede={
+          <>
+            <Button onClick={() => setDaEliminare(null)}>Annulla</Button>
+            <Button
+              variante="pericolo"
+              onClick={() => {
+                if (daEliminare) eliminaScadenza(daEliminare.id)
+                setDaEliminare(null)
+              }}
+            >
+              <Trash2 size={15} />
+              Elimina
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-ink-muted">
+          La scadenza viene rimossa definitivamente dall’archivio.
+        </p>
+      </Modal>
     </div>
   )
 }
@@ -247,16 +332,21 @@ export function Scadenze() {
 function VoceScadenza({
   scadenza,
   onCompleta,
+  onModifica,
   onElimina,
 }: {
   scadenza: Scadenza
   onCompleta: (completata: boolean) => void
+  onModifica: () => void
   onElimina: () => void
 }) {
   const tipo = TIPI_SCADENZA[scadenza.tipo]
   const giorni = giorniAllaData(scadenza.data)
   const inRitardo = !scadenza.completata && giorni < 0
-  const urgente = !scadenza.completata && (scadenza.priorita === 'urgente' || giorni <= 2)
+  // La priorità impostata dall'operatore ha la precedenza: il conto dei giorni
+  // la integra solo per le scadenze ormai imminenti.
+  const urgente =
+    !scadenza.completata && (scadenza.priorita === 'urgente' || (giorni >= 0 && giorni <= 2))
 
   return (
     <li className="flex items-start gap-3 px-5 py-4">
@@ -320,14 +410,12 @@ function VoceScadenza({
           </Badge>
         )}
 
-        <Button
-          dimensione="sm"
-          variante="pericolo"
-          onClick={onElimina}
-          aria-label="Elimina promemoria"
-        >
+        <IconButton etichetta="Modifica promemoria" onClick={onModifica}>
+          <Pencil size={14} />
+        </IconButton>
+        <IconButton etichetta="Elimina promemoria" onClick={onElimina}>
           <Trash2 size={14} />
-        </Button>
+        </IconButton>
       </div>
     </li>
   )

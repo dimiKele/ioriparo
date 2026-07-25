@@ -146,6 +146,29 @@ export const CSS_STAMPA = `
     margin-top: 20px;
     break-inside: avoid;
   }
+  .doc-foto {
+    margin-top: 16px;
+    break-inside: avoid;
+  }
+  .doc-foto h2 {
+    margin: 0 0 6px;
+    font-size: 8pt;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #6b7280;
+  }
+  .doc-foto-griglia {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .doc-foto-griglia img {
+    width: 32mm;
+    height: 42mm;
+    object-fit: cover;
+    border: 1px solid #dde2ea;
+    border-radius: 4px;
+  }
   .doc-firma-riquadro {
     height: 26mm;
     border: 1px solid #dde2ea;

@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
   BarChart3,
@@ -18,6 +19,7 @@ import {
 import { Logo } from './Logo'
 import { cn } from '@/lib/cn'
 import { useGestionale } from '@/data/store'
+import { useMediaQuery } from '@/lib/useMediaQuery'
 
 interface VoceMenu {
   etichetta: string
@@ -43,6 +45,20 @@ export const VOCI_MENU: VoceMenu[] = [
 export function Sidebar({ aperta, onChiudi }: { aperta: boolean; onChiudi: () => void }) {
   const { db } = useGestionale()
   const { azienda } = db
+  const schermoLargo = useMediaQuery('(min-width: 1024px)')
+  // Su schermo stretto il menu chiuso è solo traslato fuori vista: senza
+  // `inert` resterebbe raggiungibile con il tasto Tab e con lo screen reader.
+  const nascosto = !aperta && !schermoLargo
+
+  // Chiusura con ESC quando il menu è aperto sopra il contenuto.
+  useEffect(() => {
+    if (!aperta) return
+    const onTasto = (evento: KeyboardEvent) => {
+      if (evento.key === 'Escape') onChiudi()
+    }
+    document.addEventListener('keydown', onTasto)
+    return () => document.removeEventListener('keydown', onTasto)
+  }, [aperta, onChiudi])
 
   return (
     <>
@@ -56,6 +72,8 @@ export function Sidebar({ aperta, onChiudi }: { aperta: boolean; onChiudi: () =>
       )}
 
       <aside
+        inert={nascosto ? true : undefined}
+        aria-hidden={nascosto ? true : undefined}
         className={cn(
           'fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-line bg-surface transition-transform duration-200 lg:translate-x-0',
           aperta ? 'translate-x-0' : '-translate-x-full',

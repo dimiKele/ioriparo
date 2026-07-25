@@ -65,7 +65,14 @@ export function ClientiList() {
     return db.clienti.filter((cliente) => {
       if (tipo !== 'tutti' && cliente.tipo !== tipo) return false
       if (!termine) return true
-      return [cliente.nome, cliente.telefono, cliente.email ?? '', cliente.citta ?? '']
+      return [
+        cliente.nome,
+        cliente.telefono,
+        cliente.email ?? '',
+        cliente.citta ?? '',
+        cliente.partitaIva ?? '',
+        cliente.codiceFiscale ?? '',
+      ]
         .join(' ')
         .toLowerCase()
         .includes(termine)
@@ -76,6 +83,20 @@ export function ClientiList() {
     perPaginaIniziale: 10,
     ordinamentoIniziale: { campo: 'nome', direzione: 'asc' },
   })
+
+  /** Documenti che resterebbero orfani eliminando il cliente selezionato. */
+  const collegamentiCliente = useMemo(() => {
+    if (!daEliminare) return { totale: 0, voci: [] as Array<[string, number]> }
+    const id = daEliminare.id
+    const voci: Array<[string, number]> = [
+      ['riparazioni', db.riparazioni.filter((r) => r.clienteId === id).length],
+      ['preventivi', db.preventivi.filter((p) => p.clienteId === id).length],
+      ['fatture', db.fatture.filter((f) => f.clienteId === id).length],
+      ['impianti', db.impianti.filter((i) => i.clienteId === id).length],
+    ]
+    const presenti = voci.filter(([, quantita]) => quantita > 0)
+    return { totale: presenti.reduce((somma, [, q]) => somma + q, 0), voci: presenti }
+  }, [daEliminare, db])
 
   const riparazioniPerCliente = useMemo(() => {
     const mappa = new Map<string, number>()
@@ -92,6 +113,11 @@ export function ClientiList() {
       return
     }
 
+    if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      setErrore('Indirizzo email non valido.')
+      return
+    }
+
     const dati = {
       nome: form.nome.trim(),
       tipo: form.tipo,
@@ -100,14 +126,20 @@ export function ClientiList() {
       indirizzo: form.indirizzo.trim() || undefined,
       citta: form.citta.trim() || undefined,
       cap: form.cap.trim() || undefined,
-      partitaIva: form.partitaIva.trim() || undefined,
-      codiceFiscale: form.codiceFiscale.trim() || undefined,
+      // Il campo fiscale non pertinente al tipo non va conservato: resterebbe
+      // invisibile nel modulo ma presente in anagrafica e nei backup.
+      partitaIva: form.tipo === 'azienda' ? form.partitaIva.trim() || undefined : undefined,
+      codiceFiscale: form.tipo === 'privato' ? form.codiceFiscale.trim() || undefined : undefined,
       note: form.note.trim() || undefined,
     }
 
     if (inModifica) aggiornaCliente(inModifica, dati)
     else aggiungiCliente(dati)
 
+    chiudiForm()
+  }
+
+  function chiudiForm() {
     setForm(null)
     setInModifica(null)
     setErrore('')
@@ -115,6 +147,7 @@ export function ClientiList() {
 
   function apriModifica(cliente: Cliente) {
     setInModifica(cliente.id)
+    setErrore('')
     setForm({
       nome: cliente.nome,
       tipo: cliente.tipo,
@@ -160,6 +193,7 @@ export function ClientiList() {
           variante="primario"
           onClick={() => {
             setInModifica(null)
+            setErrore('')
             setForm({ ...VUOTO })
           }}
         >
@@ -245,7 +279,7 @@ export function ClientiList() {
               <tbody>
                 {elenco.visibili.map((cliente) => (
                   <Tr key={cliente.id} onClick={() => navigate(`/clienti/${cliente.id}`)}>
-                    <Td>
+                    <Td etichetta="Cliente">
                       <span className="flex items-center gap-3">
                         <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-surface-3 text-xs font-bold text-ink-muted">
                           {iniziali(cliente.nome)}
@@ -261,7 +295,7 @@ export function ClientiList() {
                         </span>
                       </span>
                     </Td>
-                    <Td className="text-[13px]">
+                    <Td etichetta="Contatti" className="text-[13px]">
                       <span className="block text-ink">{cliente.telefono}</span>
                       {cliente.email && (
                         <span className="block truncate text-[11px] text-ink-faint">
@@ -269,13 +303,19 @@ export function ClientiList() {
                         </span>
                       )}
                     </Td>
-                    <Td className="text-[13px]">
+                    <Td etichetta="Località" className="text-[13px]">
                       {cliente.citta ? `${cliente.cap ?? ''} ${cliente.citta}`.trim() : '--'}
                     </Td>
-                    <Td allineamento="center" className="text-[13px] font-semibold text-ink">
+                    <Td
+                      etichetta="Riparazioni"
+                      allineamento="center"
+                      className="text-[13px] font-semibold text-ink"
+                    >
                       {riparazioniPerCliente.get(cliente.id) ?? 0}
                     </Td>
-                    <Td className="text-[13px] whitespace-nowrap">{formatData(cliente.creatoIl)}</Td>
+                    <Td etichetta="Cliente dal" className="text-[13px] whitespace-nowrap">
+                      {formatData(cliente.creatoIl)}
+                    </Td>
                     <Td allineamento="right">
                       <span
                         className="flex items-center justify-end gap-1.5"
@@ -315,21 +355,10 @@ export function ClientiList() {
       <Modal
         aperta={form !== null}
         titolo={inModifica ? 'Modifica cliente' : 'Nuovo cliente'}
-        onChiudi={() => {
-          setForm(null)
-          setInModifica(null)
-          setErrore('')
-        }}
+        onChiudi={chiudiForm}
         piede={
           <>
-            <Button
-              onClick={() => {
-                setForm(null)
-                setInModifica(null)
-              }}
-            >
-              Annulla
-            </Button>
+            <Button onClick={chiudiForm}>Annulla</Button>
             <Button variante="primario" onClick={salva}>
               Salva cliente
             </Button>
@@ -441,8 +470,18 @@ export function ClientiList() {
         }
       >
         <p className="text-sm text-ink-muted">
-          Le riparazioni collegate restano in archivio ma perderanno il riferimento anagrafico.
+          I documenti collegati restano in archivio ma perderanno il riferimento anagrafico: non
+          saranno più ricercabili per nome e le stampe usciranno senza intestatario.
         </p>
+        {collegamentiCliente.totale > 0 && (
+          <ul className="mt-3 space-y-1 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-[13px] text-ink-muted">
+            {collegamentiCliente.voci.map(([etichetta, quantita]) => (
+              <li key={etichetta}>
+                <strong className="text-ink">{quantita}</strong> {etichetta}
+              </li>
+            ))}
+          </ul>
+        )}
       </Modal>
     </div>
   )

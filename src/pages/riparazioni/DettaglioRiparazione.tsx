@@ -2,10 +2,14 @@ import { useEffect, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft,
+  Eye,
+  EyeOff,
+  FileText,
   MessageCircle,
   Pencil,
   Plus,
   Printer,
+  Receipt,
   Trash2,
   User,
 } from 'lucide-react'
@@ -21,22 +25,37 @@ import { DocumentoScheda } from '@/components/stampa/DocumentoScheda'
 import { useIntestazione } from '@/components/layout/intestazione'
 import { useGestionale, nuovoId } from '@/data/store'
 import { imponibile, saldoRiparazione, scorporoIva, totaleRiparazione } from '@/lib/calcoli'
-import { formatData, formatEuro, oggiISO } from '@/lib/format'
+import { formatData, formatEuro, linkWhatsApp, oggiISO } from '@/lib/format'
+import { dataPiuGiorni, righeDaRiparazione } from '@/lib/documenti'
 import { ORDINE_STATI, STATI_RIPARAZIONE, TIPI_DISPOSITIVO } from '@/lib/stati'
-import type { StatoRiparazione } from '@/types'
+import type { RigaIntervento, StatoRiparazione } from '@/types'
+
+const RIGA_VUOTA = { descrizione: '', quantita: '1', prezzo: '', articoloId: '' }
 
 export function DettaglioRiparazione() {
   const { id = '' } = useParams()
-  const { db, aggiornaRiparazione, eliminaRiparazione, clientePerId } = useGestionale()
+  const {
+    db,
+    aggiornaRiparazione,
+    eliminaRiparazione,
+    muoviGiacenze,
+    clientePerId,
+    aggiungiPreventivo,
+    aggiungiFattura,
+  } = useGestionale()
   const navigate = useNavigate()
   const [parametri, setParametri] = useSearchParams()
 
   const riparazione = db.riparazioni.find((r) => r.id === id)
 
   const [aggiuntaAperta, setAggiuntaAperta] = useState(false)
-  const [nuovaRiga, setNuovaRiga] = useState({ descrizione: '', quantita: '1', prezzo: '', articoloId: '' })
+  const [nuovaRiga, setNuovaRiga] = useState(RIGA_VUOTA)
+  /** Id della riga in modifica; `null` quando si sta inserendo una voce nuova. */
+  const [rigaInModifica, setRigaInModifica] = useState<string | null>(null)
+  const [erroreRiga, setErroreRiga] = useState('')
   const [confermaEliminazione, setConfermaEliminazione] = useState(false)
   const [anteprimaAperta, setAnteprimaAperta] = useState(false)
+  const [passwordVisibile, setPasswordVisibile] = useState(false)
 
   useIntestazione({
     titolo: riparazione ? `${riparazione.marca} ${riparazione.modello}` : 'Riparazione non trovata',
@@ -61,41 +80,165 @@ export function DettaglioRiparazione() {
   const totale = totaleRiparazione(riparazione)
   const iva = db.azienda.ivaPredefinita
 
+  /** Documenti già emessi per questa scheda, per non duplicarli per errore. */
+  const documentiCollegati = [
+    ...db.preventivi
+      .filter((p) => p.riparazioneId === riparazione.id)
+      .map((p) => ({ percorso: `/preventivi/${p.id}`, etichetta: `Preventivo ${p.numero}` })),
+    ...db.fatture
+      .filter((f) => f.riparazioneId === riparazione.id)
+      .map((f) => ({ percorso: `/fatture/${f.id}`, etichetta: `Fattura ${f.numero}` })),
+  ]
+
+  const articoloScelto = nuovaRiga.articoloId
+    ? db.magazzino.find((a) => a.id === nuovaRiga.articoloId)
+    : undefined
+  // In modifica i pezzi già scalati da questa riga tornano disponibili.
+  const giaImpegnati =
+    rigaInModifica && articoloScelto
+      ? (riparazione.interventi.find(
+          (riga) => riga.id === rigaInModifica && riga.articoloId === articoloScelto.id,
+        )?.quantita ?? 0)
+      : 0
+  const quantitaRichiesta = Number.parseInt(nuovaRiga.quantita, 10)
+  const disponibili = (articoloScelto?.quantita ?? 0) + giaImpegnati
+  const avvisoGiacenza =
+    articoloScelto && Number.isFinite(quantitaRichiesta) && quantitaRichiesta > disponibili
+      ? `A magazzino risultano ${disponibili} pezzi: la giacenza verrà azzerata, verifica il carico.`
+      : ''
+
   function cambiaStato(stato: StatoRiparazione) {
     if (!riparazione) return
     aggiornaRiparazione(riparazione.id, {
       stato,
-      dataConsegna: stato === 'consegnato' ? (riparazione.dataConsegna ?? oggiISO()) : undefined,
+      // Riportando indietro lo stato la consegna già avvenuta resta a storico.
+      dataConsegna:
+        stato === 'consegnato'
+          ? (riparazione.dataConsegna ?? oggiISO())
+          : riparazione.dataConsegna,
     })
   }
 
-  function aggiungiIntervento() {
+  function apriNuovaRiga() {
+    setNuovaRiga(RIGA_VUOTA)
+    setRigaInModifica(null)
+    setErroreRiga('')
+    setAggiuntaAperta(true)
+  }
+
+  function apriModificaRiga(riga: RigaIntervento) {
+    setNuovaRiga({
+      descrizione: riga.descrizione,
+      quantita: String(riga.quantita),
+      prezzo: String(riga.prezzoUnitario),
+      articoloId: riga.articoloId ?? '',
+    })
+    setRigaInModifica(riga.id)
+    setErroreRiga('')
+    setAggiuntaAperta(true)
+  }
+
+  function chiudiRiga() {
+    setAggiuntaAperta(false)
+    setNuovaRiga(RIGA_VUOTA)
+    setRigaInModifica(null)
+    setErroreRiga('')
+  }
+
+  function salvaIntervento() {
     if (!riparazione) return
     const prezzo = Number.parseFloat(nuovaRiga.prezzo.replace(',', '.'))
     const quantita = Number.parseInt(nuovaRiga.quantita, 10)
-    if (!nuovaRiga.descrizione.trim() || !Number.isFinite(prezzo)) return
+
+    if (!nuovaRiga.descrizione.trim()) {
+      setErroreRiga('Indica la descrizione della voce.')
+      return
+    }
+    if (!Number.isFinite(prezzo) || prezzo < 0) {
+      setErroreRiga('Il prezzo deve essere un importo pari o superiore a zero.')
+      return
+    }
+    if (!Number.isFinite(quantita) || quantita < 1) {
+      setErroreRiga('La quantità deve essere almeno 1.')
+      return
+    }
+
+    const precedente = rigaInModifica
+      ? riparazione.interventi.find((riga) => riga.id === rigaInModifica)
+      : undefined
+    const articoloId = nuovaRiga.articoloId || undefined
+
+    const riga: RigaIntervento = {
+      id: precedente?.id ?? nuovoId('int'),
+      descrizione: nuovaRiga.descrizione.trim(),
+      quantita,
+      prezzoUnitario: prezzo,
+      articoloId,
+    }
 
     aggiornaRiparazione(riparazione.id, {
-      interventi: [
-        ...riparazione.interventi,
-        {
-          id: nuovoId('int'),
-          descrizione: nuovaRiga.descrizione.trim(),
-          quantita: Number.isFinite(quantita) && quantita > 0 ? quantita : 1,
-          prezzoUnitario: prezzo,
-          articoloId: nuovaRiga.articoloId || undefined,
-        },
-      ],
+      interventi: precedente
+        ? riparazione.interventi.map((voce) => (voce.id === precedente.id ? riga : voce))
+        : [...riparazione.interventi, riga],
     })
-    setNuovaRiga({ descrizione: '', quantita: '1', prezzo: '', articoloId: '' })
-    setAggiuntaAperta(false)
+
+    // Il ricambio montato esce dal magazzino: senza questo movimento le
+    // giacenze non calano mai e gli avvisi di sotto scorta non arrivano.
+    const movimenti: Array<{ articoloId: string; delta: number }> = []
+    if (precedente?.articoloId) {
+      movimenti.push({ articoloId: precedente.articoloId, delta: precedente.quantita })
+    }
+    if (articoloId) movimenti.push({ articoloId, delta: -quantita })
+    muoviGiacenze(movimenti)
+
+    chiudiRiga()
+  }
+
+  /**
+   * Genera un documento a partire dagli interventi registrati.
+   * È il ponte che mancava fra il lavoro svolto e la parte contabile.
+   */
+  function creaPreventivo() {
+    if (!riparazione) return
+    const preventivo = aggiungiPreventivo({
+      clienteId: riparazione.clienteId,
+      riparazioneId: riparazione.id,
+      data: oggiISO(),
+      validoFino: dataPiuGiorni(oggiISO(), db.azienda.giorniValiditaPreventivo),
+      stato: 'bozza',
+      righe: righeDaRiparazione(riparazione, false),
+      iva,
+      note: `Riferimento scheda ${riparazione.codice} — ${riparazione.marca} ${riparazione.modello}`,
+    })
+    navigate(`/preventivi/${preventivo.id}`)
+  }
+
+  function creaFattura() {
+    if (!riparazione) return
+    const fattura = aggiungiFattura({
+      clienteId: riparazione.clienteId,
+      riparazioneId: riparazione.id,
+      data: oggiISO(),
+      scadenza: dataPiuGiorni(oggiISO(), 30),
+      stato: 'emessa',
+      // L'acconto entra come detrazione: il documento mostra il valore pieno
+      // dell'intervento e quanto il cliente ha già versato.
+      righe: righeDaRiparazione(riparazione, true),
+      iva,
+    })
+    navigate(`/fatture/${fattura.id}`)
   }
 
   function rimuoviIntervento(idRiga: string) {
     if (!riparazione) return
+    const riga = riparazione.interventi.find((voce) => voce.id === idRiga)
     aggiornaRiparazione(riparazione.id, {
-      interventi: riparazione.interventi.filter((riga) => riga.id !== idRiga),
+      interventi: riparazione.interventi.filter((voce) => voce.id !== idRiga),
     })
+    // Il ricambio rimosso torna disponibile a magazzino.
+    if (riga?.articoloId) {
+      muoviGiacenze([{ articoloId: riga.articoloId, delta: riga.quantita }])
+    }
   }
 
   return (
@@ -260,7 +403,7 @@ export function DettaglioRiparazione() {
               <Button
                 dimensione="sm"
                 variante="primario"
-                onClick={() => setAggiuntaAperta(true)}
+                onClick={apriNuovaRiga}
                 className="print:hidden"
               >
                 <Plus size={14} />
@@ -273,7 +416,7 @@ export function DettaglioRiparazione() {
                 Nessun intervento registrato. Aggiungi le voci per calcolare il totale da fatturare.
               </p>
             ) : (
-              <Tabella className="min-w-[560px]">
+              <Tabella larghezzaMinima="sm:min-w-[560px]">
                 <TabellaHead>
                   <Th>Descrizione</Th>
                   <Th allineamento="center">Q.tà</Th>
@@ -293,17 +436,48 @@ export function DettaglioRiparazione() {
                         {formatEuro(riga.quantita * riga.prezzoUnitario)}
                       </Td>
                       <Td allineamento="right" className="print:hidden">
-                        <IconButton
-                          etichetta="Rimuovi voce"
-                          onClick={() => rimuoviIntervento(riga.id)}
-                        >
-                          <Trash2 size={14} />
-                        </IconButton>
+                        <span className="inline-flex gap-1">
+                          <IconButton
+                            etichetta="Modifica voce"
+                            onClick={() => apriModificaRiga(riga)}
+                          >
+                            <Pencil size={14} />
+                          </IconButton>
+                          <IconButton
+                            etichetta="Rimuovi voce"
+                            onClick={() => rimuoviIntervento(riga.id)}
+                          >
+                            <Trash2 size={14} />
+                          </IconButton>
+                        </span>
                       </Td>
                     </Tr>
                   ))}
                 </tbody>
               </Tabella>
+            )}
+
+            {riparazione.interventi.length > 0 && (
+              <div className="flex flex-wrap gap-2 border-t border-line px-5 py-3 print:hidden">
+                <Button dimensione="sm" onClick={creaPreventivo}>
+                  <FileText size={14} />
+                  Crea preventivo
+                </Button>
+                <Button dimensione="sm" variante="successo" onClick={creaFattura}>
+                  <Receipt size={14} />
+                  Crea fattura
+                </Button>
+                {documentiCollegati.map((documento) => (
+                  <Button
+                    key={documento.percorso}
+                    dimensione="sm"
+                    variante="fantasma"
+                    onClick={() => navigate(documento.percorso)}
+                  >
+                    {documento.etichetta}
+                  </Button>
+                ))}
+              </div>
             )}
 
             <dl className="space-y-1.5 border-t border-line px-5 py-4 text-sm">
@@ -329,6 +503,13 @@ export function DettaglioRiparazione() {
                     <dt>Saldo al ritiro</dt>
                     <dd>{formatEuro(saldoRiparazione(riparazione))}</dd>
                   </div>
+                  {riparazione.acconto > totale && (
+                    // Senza questa riga i soldi da restituire non compaiono da nessuna parte.
+                    <div className="flex justify-between font-semibold text-amber-300">
+                      <dt>Da rimborsare al cliente</dt>
+                      <dd>{formatEuro(riparazione.acconto - totale)}</dd>
+                    </div>
+                  )}
                 </>
               ) : null}
             </dl>
@@ -377,17 +558,19 @@ export function DettaglioRiparazione() {
                   )}
                 </dl>
 
-                <a
-                  href={`https://wa.me/39${cliente.telefono.replace(/\D/g, '')}?text=${encodeURIComponent(
-                    `Salve ${cliente.nome}, la contattiamo da IO RIPARO in merito alla riparazione ${riparazione.codice} (${riparazione.marca} ${riparazione.modello}).`,
-                  )}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/12 text-sm font-medium text-emerald-300 transition-colors hover:bg-emerald-500/20 print:hidden"
-                >
-                  <MessageCircle size={16} />
-                  Avvisa su WhatsApp
-                </a>
+                {linkWhatsApp(cliente.telefono) && (
+                  <a
+                    href={`${linkWhatsApp(cliente.telefono)}?text=${encodeURIComponent(
+                      `Salve ${cliente.nome}, la contattiamo da ${db.azienda.nome} in merito alla riparazione ${riparazione.codice} (${riparazione.marca} ${riparazione.modello}).`,
+                    )}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/12 text-sm font-medium text-emerald-300 transition-colors hover:bg-emerald-500/20 print:hidden"
+                  >
+                    <MessageCircle size={16} />
+                    Avvisa su WhatsApp
+                  </a>
+                )}
               </div>
             ) : (
               <p className="mt-3 text-sm text-ink-faint">Cliente non disponibile.</p>
@@ -412,8 +595,19 @@ export function DettaglioRiparazione() {
 
           {riparazione.passwordBlocco && (
             <Card className="print:hidden">
-              <CardHeader titolo="Password / Blocco" />
-              <p className="mt-2 font-mono text-sm text-ink">{riparazione.passwordBlocco}</p>
+              <div className="flex items-center justify-between gap-3">
+                <CardHeader titolo="Password / Blocco" className="flex-1" />
+                <IconButton
+                  etichetta={passwordVisibile ? 'Nascondi il codice' : 'Mostra il codice'}
+                  onClick={() => setPasswordVisibile((visibile) => !visibile)}
+                >
+                  {passwordVisibile ? <EyeOff size={14} /> : <Eye size={14} />}
+                </IconButton>
+              </div>
+              {/* Il codice del cliente resta coperto: il banco è un luogo pubblico. */}
+              <p className="mt-2 font-mono text-sm text-ink">
+                {passwordVisibile ? riparazione.passwordBlocco : '••••••••'}
+              </p>
             </Card>
           )}
 
@@ -432,14 +626,14 @@ export function DettaglioRiparazione() {
 
       <Modal
         aperta={aggiuntaAperta}
-        titolo="Aggiungi intervento o ricambio"
-        onChiudi={() => setAggiuntaAperta(false)}
+        titolo={rigaInModifica ? 'Modifica voce' : 'Aggiungi intervento o ricambio'}
+        onChiudi={chiudiRiga}
         larghezza="sm"
         piede={
           <>
-            <Button onClick={() => setAggiuntaAperta(false)}>Annulla</Button>
-            <Button variante="primario" onClick={aggiungiIntervento}>
-              Aggiungi
+            <Button onClick={chiudiRiga}>Annulla</Button>
+            <Button variante="primario" onClick={salvaIntervento}>
+              {rigaInModifica ? 'Salva modifiche' : 'Aggiungi'}
             </Button>
           </>
         }
@@ -461,11 +655,13 @@ export function DettaglioRiparazione() {
               <option value="">Solo manodopera / voce libera</option>
               {db.magazzino.map((articolo) => (
                 <option key={articolo.id} value={articolo.id}>
-                  {articolo.nome} — {formatEuro(articolo.prezzoVendita)}
+                  {articolo.nome} — {formatEuro(articolo.prezzoVendita)} ({articolo.quantita} pz)
                 </option>
               ))}
             </Select>
           </Campo>
+
+          {avvisoGiacenza && <p className="text-[12px] text-amber-300">{avvisoGiacenza}</p>}
 
           <Campo etichetta="Descrizione" obbligatorio>
             <Input
@@ -497,10 +693,12 @@ export function DettaglioRiparazione() {
                 onChange={(e) =>
                   setNuovaRiga((precedente) => ({ ...precedente, prezzo: e.target.value }))
                 }
-                placeholder="0,00"
+                placeholder="0.00"
               />
             </Campo>
           </div>
+
+          {erroreRiga && <p className="text-[12px] text-rose-400">{erroreRiga}</p>}
         </div>
       </Modal>
 

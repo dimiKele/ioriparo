@@ -12,7 +12,10 @@
   /* Testo */
   --color-ink: #e8edf5;
   --color-ink-muted: #93a1b8;
-  --color-ink-faint: #6b7a92;
+  /* Schiarito rispetto al progetto originale: sul fondo delle card il valore
+     precedente restava sotto il rapporto di contrasto 4.5:1 richiesto da WCAG
+     AA, ed è il colore usato per le etichette più piccole dell'interfaccia. */
+  --color-ink-faint: #8b99b0;
 
   /* Accento */
   --color-brand: #2563eb;
@@ -156,19 +159,24 @@
   }
 }
 
-/* Stampa della scheda di accettazione: solo il contenuto, su fondo bianco */
+/*
+ * I documenti si stampano dall'anteprima dedicata, che compone un foglio A4
+ * autonomo (`src/lib/stampa/stiliStampa.ts`). Qui resta solo il minimo per chi
+ * usa Ctrl+P direttamente su una pagina dell'applicazione.
+ */
 @media print {
   @page {
     margin: 12mm;
   }
 
   body {
-    background: #fff !important;
-    color: #000 !important;
+    background: #fff;
+    color: #111;
   }
 
   aside,
-  header.sticky {
+  header.sticky,
+  .print\:hidden {
     display: none !important;
   }
 
@@ -178,26 +186,5 @@
 
   main {
     padding: 0 !important;
-  }
-
-  section {
-    border-color: #d4d4d8 !important;
-    background: #fff !important;
-    box-shadow: none !important;
-  }
-
-  /* Il testo del tema scuro va riportato su carta bianca */
-  h1,
-  h2,
-  h3,
-  p,
-  span,
-  td,
-  th,
-  dt,
-  dd,
-  li,
-  a {
-    color: #111 !important;
   }
 }

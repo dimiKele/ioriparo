@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Check, RotateCcw, Save } from 'lucide-react'
 import { Card, CardHeader } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -6,6 +6,7 @@ import { Campo, Input } from '@/components/ui/Form'
 import { Modal } from '@/components/ui/Modal'
 import { useIntestazione } from '@/components/layout/intestazione'
 import { useGestionale } from '@/data/store'
+import { componiNumero, formatoValido } from '@/lib/documenti'
 import type { Azienda } from '@/types'
 
 export function Impostazioni() {
@@ -17,14 +18,49 @@ export function Impostazioni() {
   const { db, aggiornaAzienda, ripristinaDemo } = useGestionale()
   const [form, setForm] = useState<Azienda>(db.azienda)
   const [salvato, setSalvato] = useState(false)
+  const [errore, setErrore] = useState('')
   const [confermaRipristino, setConfermaRipristino] = useState(false)
 
+  // Dopo un ripristino demo o l'import di un backup il modulo deve ripartire
+  // dai nuovi dati: altrimenti un salvataggio successivo li sovrascriverebbe.
+  useEffect(() => setForm(db.azienda), [db.azienda])
+
+  const anno = new Date().getFullYear()
+  const anteprimaFattura = formatoValido(form.formatoFattura)
+    ? componiNumero(form.formatoFattura, 1, anno)
+    : 'formato non valido'
+  const anteprimaPreventivo = formatoValido(form.formatoPreventivo)
+    ? componiNumero(form.formatoPreventivo, 1, anno)
+    : 'formato non valido'
+
   function salva() {
-    aggiornaAzienda({
-      ...form,
-      ivaPredefinita: Number(form.ivaPredefinita) || 0,
-      giorniValiditaPreventivo: Number(form.giorniValiditaPreventivo) || 0,
-    })
+    const iva = Number(form.ivaPredefinita)
+    if (!Number.isFinite(iva) || iva < 0 || iva > 100) {
+      setErrore('L’aliquota IVA deve essere compresa tra 0 e 100.')
+      return
+    }
+    const giorni = Number(form.giorniValiditaPreventivo)
+    if (!Number.isFinite(giorni) || giorni < 0) {
+      setErrore('La validità dei preventivi non può essere negativa.')
+      return
+    }
+    // `prossimoCodice` legge il progressivo dopo il trattino: senza separatore
+    // ogni nuova riparazione ripartirebbe da 0001.
+    if (!form.prefissoCodice.includes('-')) {
+      setErrore('Il prefisso deve contenere un trattino, per esempio «#25-».')
+      return
+    }
+    if (!formatoValido(form.formatoFattura) || !formatoValido(form.formatoPreventivo)) {
+      setErrore('I formati dei documenti devono contenere il segnaposto {n}.')
+      return
+    }
+    if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      setErrore('L’indirizzo email aziendale non è valido.')
+      return
+    }
+
+    setErrore('')
+    aggiornaAzienda({ ...form, ivaPredefinita: iva, giorniValiditaPreventivo: giorni })
     setSalvato(true)
     window.setTimeout(() => setSalvato(false), 2500)
   }
@@ -108,12 +144,32 @@ export function Impostazioni() {
               </Campo>
               <Campo
                 etichetta="Prefisso codice riparazione"
-                aiuto="Usato per numerare le accettazioni, es. #24-0001"
+                aiuto="Deve terminare con un trattino, es. #26- → #26-0001"
                 className="sm:col-span-2"
               >
                 <Input
                   value={form.prefissoCodice}
                   onChange={(e) => setForm({ ...form, prefissoCodice: e.target.value })}
+                />
+              </Campo>
+
+              <Campo
+                etichetta="Formato numero fattura"
+                aiuto={`{n} progressivo, {anno} 2026, {aa} 26 → ${anteprimaFattura}`}
+              >
+                <Input
+                  value={form.formatoFattura}
+                  onChange={(e) => setForm({ ...form, formatoFattura: e.target.value })}
+                />
+              </Campo>
+
+              <Campo
+                etichetta="Formato numero preventivo"
+                aiuto={`{n} progressivo, {anno} 2026, {aa} 26 → ${anteprimaPreventivo}`}
+              >
+                <Input
+                  value={form.formatoPreventivo}
+                  onChange={(e) => setForm({ ...form, formatoPreventivo: e.target.value })}
                 />
               </Campo>
             </div>
@@ -140,13 +196,22 @@ export function Impostazioni() {
         </div>
       </div>
 
-      <div className="flex items-center justify-end gap-3">
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        {errore && <span className="mr-auto text-sm text-rose-400">{errore}</span>}
         {salvato && (
           <span className="flex items-center gap-1.5 text-sm text-emerald-400">
             <Check size={16} />
             Impostazioni salvate
           </span>
         )}
+        <Button
+          onClick={() => {
+            setForm(db.azienda)
+            setErrore('')
+          }}
+        >
+          Annulla modifiche
+        </Button>
         <Button variante="primario" onClick={salva}>
           <Save size={15} />
           Salva impostazioni

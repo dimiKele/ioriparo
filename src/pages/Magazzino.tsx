@@ -31,7 +31,7 @@ import { useIntestazione } from '@/components/layout/intestazione'
 import { useGestionale } from '@/data/store'
 import { articoliSottoScorta, valoreMagazzino } from '@/data/metriche'
 import { useElenco } from '@/lib/useElenco'
-import { esportaCsv, nomeFileConData } from '@/lib/esporta'
+import { esportaCsv, nomeFileConData, numeroCsv } from '@/lib/esporta'
 import { margine } from '@/lib/calcoli'
 import { formatEuro } from '@/lib/format'
 import type { ArticoloMagazzino } from '@/types'
@@ -83,7 +83,12 @@ export function Magazzino() {
     const termine = ricerca.trim().toLowerCase()
     return db.magazzino.filter((articolo) => {
       if (categoria !== 'tutte' && articolo.categoria !== categoria) return false
-      if (soloSottoScorta && articolo.quantita > articolo.scorta_minima) return false
+      if (
+        soloSottoScorta &&
+        !(articolo.scorta_minima > 0 && articolo.quantita <= articolo.scorta_minima)
+      ) {
+        return false
+      }
       if (!termine) return true
       return [articolo.codice, articolo.nome, articolo.fornitore ?? '', articolo.ubicazione ?? '']
         .join(' ')
@@ -97,6 +102,35 @@ export function Magazzino() {
     ordinamentoIniziale: { campo: 'nome', direzione: 'asc' },
   })
 
+  /** Quante righe di documenti citano l'articolo in eliminazione. */
+  const riferimentiArticolo = useMemo(() => {
+    if (!daEliminare) return 0
+    const conta = (righe: Array<{ articoloId?: string }>) =>
+      righe.filter((riga) => riga.articoloId === daEliminare.id).length
+    return (
+      db.riparazioni.reduce((somma, r) => somma + conta(r.interventi), 0) +
+      db.preventivi.reduce((somma, p) => somma + conta(p.righe), 0) +
+      db.fatture.reduce((somma, f) => somma + conta(f.righe), 0) +
+      db.ordini.reduce((somma, o) => somma + conta(o.righe), 0)
+    )
+  }, [daEliminare, db])
+
+  /** Codice univoco derivato dal nome quando l'utente non ne indica uno. */
+  function codiceAutomatico(nome: string, escludiId: string | null): string {
+    const base =
+      nome
+        .toUpperCase()
+        .replace(/[^A-Z0-9]+/g, '')
+        .slice(0, 8) || 'ART'
+    const presi = new Set(
+      db.magazzino.filter((a) => a.id !== escludiId).map((a) => a.codice.toUpperCase()),
+    )
+    if (!presi.has(base)) return base
+    let contatore = 2
+    while (presi.has(`${base}-${contatore}`)) contatore += 1
+    return `${base}-${contatore}`
+  }
+
   function salva() {
     if (!form) return
     const quantita = Number.parseInt(form.quantita, 10)
@@ -104,13 +138,39 @@ export function Magazzino() {
     const acquisto = Number.parseFloat(form.prezzoAcquisto.replace(',', '.'))
     const vendita = Number.parseFloat(form.prezzoVendita.replace(',', '.'))
 
-    if (!form.nome.trim() || !Number.isFinite(vendita)) {
-      setErrore('Nome e prezzo di vendita sono obbligatori.')
+    if (!form.nome.trim()) {
+      setErrore('Il nome dell’articolo è obbligatorio.')
+      return
+    }
+    if (!Number.isFinite(vendita) || vendita < 0) {
+      setErrore('Indica un prezzo di vendita pari o superiore a zero.')
+      return
+    }
+    if (Number.isFinite(acquisto) && acquisto < 0) {
+      setErrore('Il prezzo di acquisto non può essere negativo.')
+      return
+    }
+    // Una giacenza negativa falsa il valore di magazzino e gli avvisi di scorta.
+    if (Number.isFinite(quantita) && quantita < 0) {
+      setErrore('La giacenza non può essere negativa.')
+      return
+    }
+    if (Number.isFinite(scorta) && scorta < 0) {
+      setErrore('La scorta minima non può essere negativa.')
+      return
+    }
+
+    const codice = form.codice.trim().toUpperCase()
+    if (
+      codice &&
+      db.magazzino.some((a) => a.id !== inModifica && a.codice.toUpperCase() === codice)
+    ) {
+      setErrore(`Il codice ${codice} è già usato da un altro articolo.`)
       return
     }
 
     const dati = {
-      codice: form.codice.trim() || form.nome.trim().slice(0, 8).toUpperCase(),
+      codice: codice || codiceAutomatico(form.nome, inModifica),
       nome: form.nome.trim(),
       categoria: form.categoria.trim() || 'Varie',
       fornitore: form.fornitore.trim() || undefined,
@@ -124,6 +184,10 @@ export function Magazzino() {
     if (inModifica) aggiornaArticolo(inModifica, dati)
     else aggiungiArticolo(dati)
 
+    chiudiForm()
+  }
+
+  function chiudiForm() {
     setForm(null)
     setInModifica(null)
     setErrore('')
@@ -131,6 +195,7 @@ export function Magazzino() {
 
   function apriModifica(articolo: ArticoloMagazzino) {
     setInModifica(articolo.id)
+    setErrore('')
     setForm({
       codice: articolo.codice,
       nome: articolo.nome,
@@ -170,8 +235,8 @@ export function Magazzino() {
         a.fornitore,
         a.quantita,
         a.scorta_minima,
-        a.prezzoAcquisto.toFixed(2),
-        a.prezzoVendita.toFixed(2),
+        numeroCsv(a.prezzoAcquisto),
+        numeroCsv(a.prezzoVendita),
         a.ubicazione,
       ]),
     )
@@ -188,6 +253,7 @@ export function Magazzino() {
           variante="primario"
           onClick={() => {
             setInModifica(null)
+            setErrore('')
             setForm({ ...VUOTO })
           }}
         >
@@ -214,7 +280,10 @@ export function Magazzino() {
           icona={AlertTriangle}
           colore="#f43f5e"
           attivo={soloSottoScorta}
-          onClick={() => setSoloSottoScorta((attivo) => !attivo)}
+          onClick={() => {
+            setSoloSottoScorta((attivo) => !attivo)
+            elenco.azzeraPagina()
+          }}
         />
         <Card>
           <p className="text-[10px] font-bold tracking-wider text-ink-faint uppercase">
@@ -277,7 +346,7 @@ export function Magazzino() {
           <StatoVuoto titolo="Nessun articolo trovato" />
         ) : (
           <>
-            <Tabella className="min-w-[900px]">
+            <Tabella larghezzaMinima="sm:min-w-[900px]">
               <TabellaHead>
                 <Th>Codice</Th>
                 <Th>Articolo</Th>
@@ -387,21 +456,10 @@ export function Magazzino() {
       <Modal
         aperta={form !== null}
         titolo={inModifica ? 'Modifica articolo' : 'Nuovo articolo'}
-        onChiudi={() => {
-          setForm(null)
-          setInModifica(null)
-          setErrore('')
-        }}
+        onChiudi={chiudiForm}
         piede={
           <>
-            <Button
-              onClick={() => {
-                setForm(null)
-                setInModifica(null)
-              }}
-            >
-              Annulla
-            </Button>
+            <Button onClick={chiudiForm}>Annulla</Button>
             <Button variante="primario" onClick={salva}>
               Salva articolo
             </Button>
@@ -514,6 +572,13 @@ export function Magazzino() {
         <p className="text-sm text-ink-muted">
           L'articolo sparisce dal catalogo; i documenti già emessi non vengono modificati.
         </p>
+        {riferimentiArticolo > 0 && (
+          <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-[13px] text-ink-muted">
+            L’articolo è citato in <strong className="text-ink">{riferimentiArticolo}</strong> tra
+            riparazioni, preventivi, fatture e ordini. Le righe restano leggibili, ma i ricavi
+            passeranno alla categoria «Manodopera e servizi» nelle statistiche.
+          </p>
+        )}
       </Modal>
     </div>
   )

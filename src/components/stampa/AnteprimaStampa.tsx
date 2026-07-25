@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Download, Printer, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { useModale } from '@/lib/useModale'
 import { CSS_STAMPA } from '@/lib/stampa/stiliStampa'
 
 /** Vero quando l'app gira dentro un iframe, dove la stampa può essere vietata. */
@@ -34,28 +35,49 @@ async function markupDi(documento: ReactElement): Promise<string> {
   return markup
 }
 
-/** Racchiude il documento in una pagina HTML autonoma e stampabile. */
-export async function paginaStampabile(
-  titolo: string,
-  documento: ReactElement,
-): Promise<string> {
-  const markup = await markupDi(documento)
+/** I dati dei documenti sono liberi: senza escape finirebbero nel markup. */
+function escapeHtml(testo: string): string {
+  return testo
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+/**
+ * Racchiude il markup in una pagina HTML autonoma.
+ * `conBarra` aggiunge il pulsante di stampa usato solo nel file scaricato:
+ * nell'anteprima ci sono già i comandi dell'applicazione.
+ */
+export function componiPagina(titolo: string, markup: string, conBarra: boolean): string {
+  const barra = conBarra
+    ? `<div class="doc-barra">
+  <span>Usa il pulsante per stampare o salvare in PDF.</span>
+  <button type="button" onclick="window.print()">Stampa</button>
+</div>`
+    : ''
+
   return `<!doctype html>
 <html lang="it">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${titolo}</title>
+<title>${escapeHtml(titolo)}</title>
 <style>${CSS_STAMPA}</style>
 </head>
 <body>
 ${markup}
-<div class="doc-barra">
-  <span>Usa il pulsante per stampare o salvare in PDF.</span>
-  <button type="button" onclick="window.print()">Stampa</button>
-</div>
+${barra}
 </body>
 </html>`
+}
+
+/** Racchiude il documento in una pagina HTML autonoma e stampabile. */
+export async function paginaStampabile(
+  titolo: string,
+  documento: ReactElement,
+): Promise<string> {
+  return componiPagina(titolo, await markupDi(documento), true)
 }
 
 /**
@@ -79,7 +101,10 @@ export function AnteprimaStampa({
 }) {
   const quadroRef = useRef<HTMLIFrameElement>(null)
   const [bloccata, setBloccata] = useState(false)
-  const [html, setHtml] = useState('')
+  /** Diventa vero quando l'iframe ha finito di caricare il documento. */
+  const [pronto, setPronto] = useState(false)
+  const [markup, setMarkup] = useState('')
+  const [errore, setErrore] = useState(false)
 
   // La prop `documento` è un elemento nuovo a ogni render del chiamante:
   // si legge da un riferimento e si rigenera solo all'apertura dell'anteprima.
@@ -88,37 +113,43 @@ export function AnteprimaStampa({
 
   useEffect(() => {
     if (!aperta || !documentoRef.current) {
-      setHtml('')
+      setMarkup('')
       return
     }
     let valido = true
-    void paginaStampabile(titolo, documentoRef.current).then((pagina) => {
-      if (valido) setHtml(pagina)
+    setPronto(false)
+    setErrore(false)
+    void markupDi(documentoRef.current).then((generato) => {
+      if (!valido) return
+      // Un documento vuoto produrrebbe un foglio bianco senza spiegazioni.
+      if (generato.trim() === '') setErrore(true)
+      setMarkup(generato)
     })
     return () => {
       valido = false
     }
   }, [aperta, titolo])
 
-  useEffect(() => {
-    if (!aperta) return
-    setBloccata(false)
-    const onTasto = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onChiudi()
-    }
-    document.addEventListener('keydown', onTasto)
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.removeEventListener('keydown', onTasto)
-      document.body.style.overflow = ''
-    }
-  }, [aperta, onChiudi])
+  const contenitore = useModale(aperta, onChiudi)
 
-  if (!aperta || !documento || !html) return null
+  useEffect(() => {
+    if (aperta) setBloccata(false)
+  }, [aperta])
+
+  if (!aperta || !documento) return null
+
+  const htmlAnteprima = componiPagina(titolo, markup, false)
+  const htmlDaScaricare = componiPagina(titolo, markup, true)
 
   function stampa() {
     const finestra = quadroRef.current?.contentWindow
     if (!finestra) {
+      setBloccata(true)
+      return
+    }
+    // Stampare mentre il documento sta ancora caricando immagini e firma
+    // produce fogli bianchi o privi della firma.
+    if (!pronto) {
       setBloccata(true)
       return
     }
@@ -148,18 +179,26 @@ export function AnteprimaStampa({
   }
 
   function scarica() {
-    const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }))
+    const url = URL.createObjectURL(
+      new Blob([htmlDaScaricare], { type: 'text/html;charset=utf-8' }),
+    )
     const link = document.createElement('a')
     link.href = url
     link.download = nomeFile
     document.body.appendChild(link)
     link.click()
     link.remove()
-    URL.revokeObjectURL(url)
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black/80 backdrop-blur-sm">
+    <div
+      ref={contenitore}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Anteprima di stampa — ${titolo}`}
+      className="fixed inset-0 z-50 flex flex-col bg-black/80 backdrop-blur-sm"
+    >
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-line bg-surface px-4 py-3">
         <div className="min-w-0">
           <h2 className="truncate text-sm font-semibold text-ink">Anteprima di stampa</h2>
@@ -171,9 +210,9 @@ export function AnteprimaStampa({
             <Download size={15} />
             Scarica documento
           </Button>
-          <Button variante="primario" onClick={stampa}>
+          <Button variante="primario" onClick={stampa} disabled={!pronto}>
             <Printer size={15} />
-            Stampa
+            {pronto ? 'Stampa' : 'Preparazione…'}
           </Button>
           <Button variante="fantasma" onClick={onChiudi} aria-label="Chiudi anteprima">
             <X size={18} />
@@ -181,10 +220,18 @@ export function AnteprimaStampa({
         </div>
       </header>
 
+      {errore && (
+        <p className="shrink-0 border-b border-rose-500/30 bg-rose-500/10 px-4 py-2 text-xs text-rose-200">
+          Non è stato possibile comporre il documento. Chiudi l’anteprima e riprova; se il problema
+          persiste controlla che la scheda contenga tutti i dati necessari.
+        </p>
+      )}
+
       {bloccata && (
         <p className="shrink-0 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-200">
-          Il browser ha bloccato la finestra di stampa in questa anteprima incorporata. Scarica il
-          documento con il pulsante qui sopra e stampalo dal file: il risultato è identico.
+          Il documento non è ancora pronto oppure il browser ha bloccato la finestra di stampa in
+          questa anteprima incorporata. Scarica il documento con il pulsante qui sopra e stampalo
+          dal file: il risultato è identico.
         </p>
       )}
 
@@ -192,7 +239,8 @@ export function AnteprimaStampa({
         <iframe
           ref={quadroRef}
           title={`Anteprima di stampa — ${titolo}`}
-          srcDoc={html}
+          srcDoc={htmlAnteprima}
+          onLoad={() => setPronto(true)}
           className="mx-auto block h-full min-h-[70vh] w-full max-w-[210mm] rounded-sm bg-white shadow-2xl"
         />
       </div>

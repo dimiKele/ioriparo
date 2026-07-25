@@ -44,22 +44,40 @@ export function NuovaRiparazione() {
     ],
   })
 
-  const { aggiungiCliente, aggiungiRiparazione } = useGestionale()
+  const { db, aggiungiCliente, aggiornaCliente, aggiungiRiparazione } = useGestionale()
   const navigate = useNavigate()
 
   function salva(dati: DatiForm, stampa: boolean) {
-    // Se non è stato collegato un cliente esistente se ne crea uno al volo.
-    const clienteId =
-      dati.clienteId ??
-      aggiungiCliente({
-        nome: dati.nomeCliente.trim(),
-        tipo: 'privato',
-        telefono: dati.telefono.trim(),
-        email: dati.email.trim() || undefined,
-        indirizzo: dati.indirizzo.trim() || undefined,
-        citta: dati.citta.trim() || undefined,
-        cap: dati.cap.trim() || undefined,
-      }).id
+    const anagrafica = {
+      nome: dati.nomeCliente.trim(),
+      telefono: dati.telefono.trim(),
+      email: dati.email.trim() || undefined,
+      indirizzo: dati.indirizzo.trim() || undefined,
+      citta: dati.citta.trim() || undefined,
+      cap: dati.cap.trim() || undefined,
+    }
+
+    let clienteId = dati.clienteId
+
+    if (clienteId) {
+      // Le correzioni fatte nel modulo aggiornano il cliente collegato.
+      aggiornaCliente(clienteId, anagrafica)
+    } else {
+      // Stesso nome e stesso telefono: è la stessa persona che torna, non un
+      // nuovo cliente. Evita di moltiplicare le anagrafiche a ogni riparazione.
+      const cifre = (valore: string) => valore.replace(/\D/g, '')
+      const esistente = db.clienti.find(
+        (c) =>
+          c.nome.trim().toLowerCase() === anagrafica.nome.toLowerCase() &&
+          cifre(c.telefono) === cifre(anagrafica.telefono),
+      )
+      if (esistente) {
+        clienteId = esistente.id
+        aggiornaCliente(esistente.id, anagrafica)
+      } else {
+        clienteId = aggiungiCliente({ ...anagrafica, tipo: 'privato' }).id
+      }
+    }
 
     const riparazione = aggiungiRiparazione(riparazioneDaForm(dati, clienteId))
     navigate(`/riparazioni/${riparazione.id}${stampa ? '?stampa=1' : ''}`)

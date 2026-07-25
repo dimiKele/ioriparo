@@ -74,6 +74,24 @@ export function scadenzaRelativa(iso: string): string {
   return `Scaduta da ${Math.abs(giorni)} giorni`
 }
 
+/**
+ * Link a WhatsApp con prefisso internazionale corretto.
+ *
+ * Il campo telefono è libero: anteporre `39` senza controlli rompe i numeri
+ * già scritti come `+39 …` o `0039 …`. Si considera internazionale solo ciò
+ * che l'utente ha esplicitamente marcato come tale.
+ */
+export function linkWhatsApp(telefono: string | undefined): string | undefined {
+  if (!telefono) return undefined
+  const pulito = telefono.trim()
+  const cifre = pulito.replace(/\D/g, '')
+  if (cifre.length < 6) return undefined
+
+  if (pulito.startsWith('+')) return `https://wa.me/${cifre}`
+  if (cifre.startsWith('00')) return `https://wa.me/${cifre.slice(2)}`
+  return `https://wa.me/39${cifre}`
+}
+
 /** Iniziali per gli avatar, es. «Studio Tecnico Bianchi» → «SB». */
 export function iniziali(nome: string): string {
   const parole = nome.trim().split(/\s+/).filter(Boolean)

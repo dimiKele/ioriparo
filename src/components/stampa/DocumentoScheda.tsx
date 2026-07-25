@@ -203,6 +203,19 @@ export function DocumentoScheda({
         </Sezione>
       </div>
 
+      {riparazione.foto && riparazione.foto.length > 0 && (
+        // Le foto sono la prova dello stato del dispositivo alla consegna:
+        // sul documento firmato dal cliente valgono più che a schermo.
+        <div className="doc-foto">
+          <h2>Stato del dispositivo alla consegna</h2>
+          <div className="doc-foto-griglia">
+            {riparazione.foto.map((foto, indice) => (
+              <img key={indice} src={foto} alt={`Foto del dispositivo ${indice + 1}`} />
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="doc-firme">
         <div>
           <div className="doc-firma-riquadro">

@@ -30,13 +30,14 @@ import {
   incassoDelMese,
   prodottiPiuVenduti,
   riparazioniAperte,
+  riparazioniConsegnateOggi,
   riparazioniPerStato,
   scadenzeImminenti,
   ultimeRiparazioni,
 } from '@/data/metriche'
 import {
   formatData,
-  formatEuroAuto,
+  formatEuro,
   formatNumero,
   nomeAbbreviato,
   scadenzaRelativa,
@@ -47,8 +48,8 @@ import { cn } from '@/lib/cn'
 const AZIONI_RAPIDE = [
   { etichetta: 'Nuova riparazione', percorso: '/riparazioni/nuova', icona: Wrench, tono: 'bg-blue-600' },
   { etichetta: 'Nuovo cliente', percorso: '/clienti?nuovo=1', icona: UserPlus, tono: 'bg-emerald-600' },
-  { etichetta: 'Nuovo preventivo', percorso: '/preventivi', icona: FileText, tono: 'bg-violet-600' },
-  { etichetta: 'Nuova fattura', percorso: '/fatture', icona: Receipt, tono: 'bg-amber-500' },
+  { etichetta: 'Nuovo preventivo', percorso: '/preventivi?nuovo=1', icona: FileText, tono: 'bg-violet-600' },
+  { etichetta: 'Nuova fattura', percorso: '/fatture?nuovo=1', icona: Receipt, tono: 'bg-amber-500' },
   { etichetta: 'Carico magazzino', percorso: '/magazzino?nuovo=1', icona: Boxes, tono: 'bg-cyan-600' },
   { etichetta: 'Nuovo promemoria', percorso: '/scadenze?nuovo=1', icona: CalendarPlus, tono: 'bg-rose-600' },
 ]
@@ -58,7 +59,7 @@ export function Dashboard() {
 
   const { db } = useGestionale()
   const navigate = useNavigate()
-  const [periodoIncassi, setPeriodoIncassi] = useState<'mese' | '30g' | '7g'>('mese')
+  const [periodoIncassi, setPeriodoIncassi] = useState<'mese' | number>('mese')
   const [periodoProdotti, setPeriodoProdotti] = useState(30)
 
   const conteggi = useMemo(() => contaPerStato(db), [db])
@@ -73,6 +74,11 @@ export function Dashboard() {
   )
   const ultime = useMemo(() => ultimeRiparazioni(db, 5), [db])
   const scadenze = useMemo(() => scadenzeImminenti(db, 3), [db])
+  const consegnateOggi = useMemo(() => riparazioniConsegnateOggi(db), [db])
+  const nomiClienti = useMemo(
+    () => new Map(db.clienti.map((cliente) => [cliente.id, cliente.nome])),
+    [db.clienti],
+  )
 
   return (
     <div className="space-y-4 lg:space-y-5">
@@ -101,7 +107,7 @@ export function Dashboard() {
         />
         <StatCard
           etichetta="Incasso oggi"
-          valore={formatEuroAuto(incassoDelGiorno(db))}
+          valore={formatEuro(incassoDelGiorno(db))}
           icona={Euro}
           tono="ciano"
           link="/fatture"
@@ -109,7 +115,7 @@ export function Dashboard() {
         />
         <StatCard
           etichetta="Incasso mese"
-          valore={formatEuroAuto(incassoDelMese(db))}
+          valore={formatEuro(incassoDelMese(db))}
           icona={TrendingUp}
           tono="viola"
           link="/statistiche"
@@ -128,10 +134,14 @@ export function Dashboard() {
       {/* Stato del laboratorio */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Card>
-          <CardHeader titolo="Riparazioni per stato" />
+          <CardHeader
+            titolo="Lavorazioni aperte"
+            sottotitolo={`${consegnateOggi} consegnate oggi`}
+          />
           <div className="mt-5">
             <StatoDonut
               voci={vociStato}
+              etichettaTotale="Aperte"
               onSelezione={(voce) => navigate(`/riparazioni?stato=${voce.stato}`)}
             />
           </div>
@@ -159,9 +169,7 @@ export function Dashboard() {
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[13px] font-medium text-ink">
                       {riparazione.modello} —{' '}
-                      {nomeAbbreviato(
-                        db.clienti.find((c) => c.id === riparazione.clienteId)?.nome ?? '',
-                      )}
+                      {nomeAbbreviato(nomiClienti.get(riparazione.clienteId) ?? '—')}
                     </span>
                     <span className="block truncate text-[11px] text-ink-faint">
                       {riparazione.difettoSegnalato}
@@ -176,6 +184,11 @@ export function Dashboard() {
                 </Link>
               </li>
             ))}
+            {ultime.length === 0 && (
+              <li className="py-6 text-center text-xs text-ink-faint">
+                Nessuna riparazione registrata
+              </li>
+            )}
           </ul>
           <CardFooter>
             <Link
@@ -261,13 +274,15 @@ export function Dashboard() {
             azione={
               <Select
                 value={periodoIncassi}
-                onChange={(e) => setPeriodoIncassi(e.target.value as typeof periodoIncassi)}
+                onChange={(e) =>
+                  setPeriodoIncassi(e.target.value === 'mese' ? 'mese' : Number(e.target.value))
+                }
                 aria-label="Periodo incassi"
                 className="h-8 w-36 text-xs"
               >
                 <option value="mese">Questo mese</option>
-                <option value="30g">Ultimi 30 giorni</option>
-                <option value="7g">Ultimi 7 giorni</option>
+                <option value={30}>Ultimi 30 giorni</option>
+                <option value={7}>Ultimi 7 giorni</option>
               </Select>
             }
           />
@@ -286,8 +301,8 @@ export function Dashboard() {
                 aria-label="Periodo prodotti"
                 className="h-8 w-36 text-xs"
               >
-                <option value={30}>Questo mese</option>
                 <option value={7}>Ultimi 7 giorni</option>
+                <option value={30}>Ultimi 30 giorni</option>
                 <option value={90}>Ultimi 90 giorni</option>
               </Select>
             }

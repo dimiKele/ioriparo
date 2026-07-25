@@ -7,6 +7,7 @@ import { useIntestazioneCorrente } from './intestazione'
 import { DeviceIcon } from '@/components/ui/DeviceIcon'
 import { cn } from '@/lib/cn'
 import { giorniAllaData, scadenzaRelativa } from '@/lib/format'
+import { cercaOvunque, perGruppo } from '@/lib/ricercaGlobale'
 
 /** Icona WhatsApp (non presente in lucide). */
 function IconaWhatsApp({ size = 18 }: { size?: number }) {
@@ -24,44 +25,27 @@ export function Topbar({ onApriMenu }: { onApriMenu: () => void }) {
 
   const [query, setQuery] = useState('')
   const [risultatiAperti, setRisultatiAperti] = useState(false)
+  const [ricercaMobileAperta, setRicercaMobileAperta] = useState(false)
   const [notificheAperte, setNotificheAperte] = useState(false)
   const [utenteAperto, setUtenteAperto] = useState(false)
   const contenitoreRicerca = useRef<HTMLDivElement>(null)
 
-  // Chiude i menu a tendina quando si clicca fuori.
+  // Chiude i menu a tendina quando si clicca fuori. I `setState` sono
+  // condizionati perché questo gestore scatta a ogni click dell'applicazione.
   useEffect(() => {
     const onClick = (evento: MouseEvent) => {
       if (!contenitoreRicerca.current?.contains(evento.target as Node)) {
-        setRisultatiAperti(false)
+        setRisultatiAperti((aperto) => (aperto ? false : aperto))
+        setRicercaMobileAperta((aperta) => (aperta ? false : aperta))
       }
-      setNotificheAperte(false)
-      setUtenteAperto(false)
+      setNotificheAperte((aperto) => (aperto ? false : aperto))
+      setUtenteAperto((aperto) => (aperto ? false : aperto))
     }
     document.addEventListener('click', onClick)
     return () => document.removeEventListener('click', onClick)
   }, [])
 
-  const risultati = useMemo(() => {
-    const termine = query.trim().toLowerCase()
-    if (termine.length < 2) return { riparazioni: [], clienti: [] }
-
-    const riparazioni = db.riparazioni
-      .filter((r) =>
-        [r.codice, r.marca, r.modello, r.imei ?? '', r.difettoSegnalato]
-          .join(' ')
-          .toLowerCase()
-          .includes(termine),
-      )
-      .slice(0, 5)
-
-    const clienti = db.clienti
-      .filter((c) =>
-        [c.nome, c.telefono, c.email ?? ''].join(' ').toLowerCase().includes(termine),
-      )
-      .slice(0, 4)
-
-    return { riparazioni, clienti }
-  }, [query, db.riparazioni, db.clienti])
+  const gruppiRisultati = useMemo(() => perGruppo(cercaOvunque(db, query)), [db, query])
 
   const notifiche = useMemo(() => {
     const scadenze = scadenzeImminenti(db, 5)
@@ -104,6 +88,7 @@ export function Topbar({ onApriMenu }: { onApriMenu: () => void }) {
   function apriRicerca(percorso: string) {
     setQuery('')
     setRisultatiAperti(false)
+    setRicercaMobileAperta(false)
     navigate(percorso)
   }
 
@@ -145,7 +130,29 @@ export function Topbar({ onApriMenu }: { onApriMenu: () => void }) {
       </div>
 
       {/* Ricerca globale */}
-      <div ref={contenitoreRicerca} className="relative hidden md:block md:w-72 lg:w-96">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          setRicercaMobileAperta((aperta) => !aperta)
+          setRisultatiAperti(true)
+        }}
+        aria-label="Cerca nell’archivio"
+        aria-expanded={ricercaMobileAperta}
+        className="rounded-lg p-2 text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink sm:hidden"
+      >
+        <Search size={19} />
+      </button>
+
+      {/* Su schermo stretto la ricerca si apre come pannello sotto la barra. */}
+      <div
+        ref={contenitoreRicerca}
+        className={cn(
+          'relative sm:block sm:w-56 md:w-72 lg:w-96',
+          'max-sm:absolute max-sm:inset-x-3 max-sm:top-[3.75rem] max-sm:z-30',
+          ricercaMobileAperta ? 'block' : 'hidden',
+        )}
+      >
         <Search
           size={16}
           className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-ink-faint"
@@ -163,64 +170,48 @@ export function Topbar({ onApriMenu }: { onApriMenu: () => void }) {
         />
 
         {risultatiAperti && query.trim().length >= 2 && (
-          <div className="absolute top-12 right-0 left-0 max-h-96 overflow-y-auto rounded-card border border-line-soft bg-surface p-2 shadow-2xl">
-            {risultati.riparazioni.length === 0 && risultati.clienti.length === 0 && (
+          <div
+            role="listbox"
+            aria-label="Risultati della ricerca"
+            className="absolute top-12 right-0 left-0 z-30 max-h-96 overflow-y-auto rounded-card border border-line-soft bg-surface p-2 shadow-2xl"
+          >
+            {gruppiRisultati.length === 0 && (
               <p className="px-3 py-6 text-center text-xs text-ink-faint">
                 Nessun risultato per «{query}»
               </p>
             )}
 
-            {risultati.riparazioni.length > 0 && (
-              <>
+            {gruppiRisultati.map(([gruppo, voci]) => (
+              <div key={gruppo}>
                 <p className="px-3 py-1.5 text-[10px] font-bold tracking-wider text-ink-faint uppercase">
-                  Riparazioni
+                  {gruppo}
                 </p>
-                {risultati.riparazioni.map((riparazione) => (
+                {voci.map((voce) => (
                   <button
-                    key={riparazione.id}
+                    key={`${gruppo}-${voce.id}`}
                     type="button"
-                    onClick={() => apriRicerca(`/riparazioni/${riparazione.id}`)}
+                    role="option"
+                    aria-selected={false}
+                    onClick={() => apriRicerca(voce.percorso)}
                     className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-surface-2"
                   >
-                    <DeviceIcon tipo={riparazione.tipoDispositivo} dimensione="sm" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm text-ink">
-                        {riparazione.marca} {riparazione.modello}
+                    {voce.tipoDispositivo ? (
+                      <DeviceIcon tipo={voce.tipoDispositivo} dimensione="sm" />
+                    ) : (
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-line-soft bg-surface-2 text-ink-muted">
+                        <User size={16} />
                       </span>
+                    )}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm text-ink">{voce.titolo}</span>
                       <span className="block truncate text-[11px] text-ink-faint">
-                        {riparazione.codice} · {riparazione.difettoSegnalato}
+                        {voce.dettaglio}
                       </span>
                     </span>
                   </button>
                 ))}
-              </>
-            )}
-
-            {risultati.clienti.length > 0 && (
-              <>
-                <p className="mt-1 px-3 py-1.5 text-[10px] font-bold tracking-wider text-ink-faint uppercase">
-                  Clienti
-                </p>
-                {risultati.clienti.map((cliente) => (
-                  <button
-                    key={cliente.id}
-                    type="button"
-                    onClick={() => apriRicerca(`/clienti/${cliente.id}`)}
-                    className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-surface-2"
-                  >
-                    <span className="flex size-9 items-center justify-center rounded-lg border border-line-soft bg-surface-2 text-ink-muted">
-                      <User size={16} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm text-ink">{cliente.nome}</span>
-                      <span className="block truncate text-[11px] text-ink-faint">
-                        {cliente.telefono}
-                      </span>
-                    </span>
-                  </button>
-                ))}
-              </>
-            )}
+              </div>
+            ))}
           </div>
         )}
       </div>

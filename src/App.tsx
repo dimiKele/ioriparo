@@ -1,5 +1,6 @@
 import { createBrowserRouter, createHashRouter, RouterProvider } from 'react-router-dom'
 import { AppLayout } from '@/components/layout/AppLayout'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { GestionaleProvider } from '@/data/store'
 import { Dashboard } from '@/pages/Dashboard'
 import { ClientiList } from '@/pages/clienti/ClientiList'
@@ -42,7 +43,9 @@ const router = creaRouter([
       { path: 'riparazioni/:id/modifica', element: <ModificaRiparazione /> },
 
       { path: 'preventivi', element: <Preventivi /> },
+      { path: 'preventivi/:id', element: <Preventivi /> },
       { path: 'fatture', element: <Fatture /> },
+      { path: 'fatture/:id', element: <Fatture /> },
       { path: 'magazzino', element: <Magazzino /> },
       { path: 'ordini', element: <OrdiniFornitori /> },
       { path: 'scadenze', element: <Scadenze /> },
@@ -58,8 +61,10 @@ const router = creaRouter([
 
 export function App() {
   return (
-    <GestionaleProvider>
-      <RouterProvider router={router} />
-    </GestionaleProvider>
+    <ErrorBoundary>
+      <GestionaleProvider>
+        <RouterProvider router={router} />
+      </GestionaleProvider>
+    </ErrorBoundary>
   )
 }

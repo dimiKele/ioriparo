@@ -43,12 +43,12 @@ npm run lint       # oxlint
 | `/riparazioni/:id` | Scheda riparazione: stato, interventi e ricambi, totali con IVA, cliente, foto, firma, stampa |
 | `/riparazioni/:id/modifica` | Modifica dell'accettazione |
 | `/clienti`, `/clienti/:id` | Anagrafica privati e aziende, scheda cliente con storico riparazioni e fatture |
-| `/preventivi` | Preventivi per stato con dettaglio e cambio stato |
-| `/fatture` | Documenti emessi, incassi, registrazione del pagamento |
+| `/preventivi`, `/preventivi/:id` | Preventivi: creazione, modifica, cambio stato, conversione in fattura |
+| `/fatture`, `/fatture/:id` | Fatture: creazione, modifica, incasso, storno |
 | `/magazzino` | Ricambi e accessori, carico/scarico rapido, avvisi di sotto scorta, margini |
-| `/ordini` | Ordini a fornitore; alla ricezione la merce entra in giacenza |
+| `/ordini` | Ordini a fornitore con consegne parziali; la merce ricevuta entra in giacenza |
 | `/scadenze` | Pagamenti, contratti e promemoria con priorità |
-| `/impianti` | Impianti installati presso i clienti e manutenzioni programmate |
+| `/impianti` | Impianti presso i clienti; la manutenzione programmata genera un promemoria |
 | `/statistiche` | Incassi, riparazioni per mese, ricavi per categoria, tipologie di dispositivo |
 | `/impostazioni` | Dati aziendali, IVA e numerazione predefinite |
 | `/backup` | Backup JSON completo (esporta/importa) ed esportazioni CSV |
@@ -77,9 +77,27 @@ L'app non ha backend: all'avvio carica un archivio dimostrativo (24 riparazioni,
 18 articoli di magazzino e circa tre mesi di fatture) e salva ogni modifica in `localStorage`
 sotto la chiave `ioriparo:db:v1`.
 
+L'archivio viene **validato** sia al caricamento sia all'importazione di un backup
+(`src/lib/validaArchivio.ts`): i record irrecuperabili vengono scartati e le correzioni
+applicate sono mostrate in cima alla pagina. Se il salvataggio fallisce — tipicamente per
+spazio esaurito — l'applicazione lo segnala invece di far lavorare l'utente su dati volatili.
+Le foto acquisite in accettazione sono ridimensionate e ricompresse prima di essere salvate
+(`src/lib/immagini.ts`).
+
 Le date del dataset sono calcolate rispetto al giorno corrente, così dashboard, incassi del mese
 e scadenze restano sempre significativi. Da *Impostazioni* si possono ripristinare i dati
 dimostrativi, da *Backup* esportare e reimportare l'archivio.
+
+## Compilazione e pubblicazione
+
+```bash
+npm run build                        # asset con percorsi relativi, pubblicabili in sottocartella
+VITE_ROUTER=hash npm run build       # navigazione via fragment (#/clienti) per hosting statici
+VITE_BASE=/nome-repo/ npm run build  # percorso assoluto, se serve
+```
+
+Senza riscrittura degli URL lato server (GitHub Pages, anteprime statiche) va usato
+`VITE_ROUTER=hash`, altrimenti un ricaricamento su `/riparazioni/xyz` restituisce 404.
 
 ## Convenzioni
 
@@ -90,3 +108,9 @@ dimostrativi, da *Backup* esportare e reimportare l'archivio.
   `src/lib/stati.ts` e riusati da badge, filtri, grafici e stampe.
 - Gli stili base dei campi stanno nel layer `components` (`.ui-field` in `index.css`) così le
   utility Tailwind passate via `className` mantengono la precedenza.
+- Gli stati «scaduta» di fatture e preventivi sono **derivati dalle date**
+  (`statoFatturaEffettivo`, `statoPreventivoEffettivo` in `src/lib/stati.ts`), non memorizzati.
+- La numerazione dei documenti segue modelli configurabili in *Impostazioni*: `{n}` è il
+  progressivo, `{anno}` l'anno per esteso, `{aa}` le ultime due cifre.
+- La stampa non usa la pagina dell'applicazione: i documenti sono composti in un foglio A4
+  autonomo e mostrati in un iframe (`src/components/stampa/`).

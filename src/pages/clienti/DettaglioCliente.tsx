@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, MessageCircle, Plus, Receipt, Wrench } from 'lucide-react'
+import { ArrowLeft, FileText, MessageCircle, Plus, Receipt, Wrench } from 'lucide-react'
 import { Card, CardHeader } from '@/components/ui/Card'
 import { BadgeStato } from '@/components/ui/Badge'
 import { Button, LinkButton } from '@/components/ui/Button'
@@ -8,9 +8,14 @@ import { DeviceIcon } from '@/components/ui/DeviceIcon'
 import { Tabella, TabellaHead, Td, Th, Tr, StatoVuoto } from '@/components/ui/Tabella'
 import { useIntestazione } from '@/components/layout/intestazione'
 import { useGestionale } from '@/data/store'
-import { totaleFattura, totaleRiparazione } from '@/lib/calcoli'
-import { formatData, formatEuro, iniziali } from '@/lib/format'
-import { STATI_FATTURA } from '@/lib/stati'
+import { totaleFattura, totalePreventivo, totaleRiparazione } from '@/lib/calcoli'
+import { formatData, formatEuro, iniziali, linkWhatsApp } from '@/lib/format'
+import {
+  STATI_FATTURA,
+  STATI_PREVENTIVO,
+  statoFatturaEffettivo,
+  statoPreventivoEffettivo,
+} from '@/lib/stati'
 import { Badge } from '@/components/ui/Badge'
 
 export function DettaglioCliente() {
@@ -40,6 +45,12 @@ export function DettaglioCliente() {
   const fatture = useMemo(
     () => db.fatture.filter((f) => f.clienteId === id).sort((a, b) => b.data.localeCompare(a.data)),
     [db.fatture, id],
+  )
+
+  const preventivi = useMemo(
+    () =>
+      db.preventivi.filter((p) => p.clienteId === id).sort((a, b) => b.data.localeCompare(a.data)),
+    [db.preventivi, id],
   )
 
   if (!cliente) return <Navigate to="/clienti" replace />
@@ -116,15 +127,17 @@ export function DettaglioCliente() {
             </p>
           )}
 
-          <a
-            href={`https://wa.me/39${cliente.telefono.replace(/\D/g, '')}`}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/12 text-sm font-medium text-emerald-300 transition-colors hover:bg-emerald-500/20"
-          >
-            <MessageCircle size={16} />
-            Scrivi su WhatsApp
-          </a>
+          {linkWhatsApp(cliente.telefono) && (
+            <a
+              href={linkWhatsApp(cliente.telefono)}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/12 text-sm font-medium text-emerald-300 transition-colors hover:bg-emerald-500/20"
+            >
+              <MessageCircle size={16} />
+              Scrivi su WhatsApp
+            </a>
+          )}
         </Card>
 
         <div className="space-y-4 xl:col-span-2">
@@ -143,9 +156,10 @@ export function DettaglioCliente() {
             </Card>
             <Card className="text-center">
               <p className="text-[10px] font-bold tracking-wider text-ink-faint uppercase">
-                Totale speso
+                Fatture incassate
               </p>
               <p className="mt-1 text-2xl font-bold text-ink">{formatEuro(speso)}</p>
+              <p className="mt-0.5 text-[10px] text-ink-faint">esclusi incassi senza fattura</p>
             </Card>
           </div>
 
@@ -165,7 +179,7 @@ export function DettaglioCliente() {
                 }
               />
             ) : (
-              <Tabella className="min-w-[640px]">
+              <Tabella larghezzaMinima="sm:min-w-[640px]">
                 <TabellaHead>
                   <Th>ID</Th>
                   <Th>Dispositivo</Th>
@@ -223,7 +237,7 @@ export function DettaglioCliente() {
             {fatture.length === 0 ? (
               <StatoVuoto titolo="Nessuna fattura emessa" />
             ) : (
-              <Tabella className="min-w-[520px]">
+              <Tabella larghezzaMinima="sm:min-w-[520px]">
                 <TabellaHead>
                   <Th>Numero</Th>
                   <Th>Data</Th>
@@ -232,7 +246,7 @@ export function DettaglioCliente() {
                 </TabellaHead>
                 <tbody>
                   {fatture.slice(0, 8).map((fattura) => (
-                    <Tr key={fattura.id} onClick={() => navigate('/fatture')}>
+                    <Tr key={fattura.id} onClick={() => navigate(`/fatture/${fattura.id}`)}>
                       <Td className="whitespace-nowrap">
                         <span className="flex items-center gap-2">
                           <Receipt size={14} className="text-ink-faint" />
@@ -241,12 +255,71 @@ export function DettaglioCliente() {
                       </Td>
                       <Td className="whitespace-nowrap">{formatData(fattura.data)}</Td>
                       <Td>
-                        <Badge className={STATI_FATTURA[fattura.stato].badge}>
-                          {STATI_FATTURA[fattura.stato].label}
+                        <Badge className={STATI_FATTURA[statoFatturaEffettivo(fattura)].badge}>
+                          {STATI_FATTURA[statoFatturaEffettivo(fattura)].label}
                         </Badge>
                       </Td>
                       <Td allineamento="right" className="font-semibold text-ink">
                         {formatEuro(totaleFattura(fattura))}
+                      </Td>
+                    </Tr>
+                  ))}
+                </tbody>
+              </Tabella>
+            )}
+            {fatture.length > 8 && (
+              <p className="px-5 pb-4 text-[11px] text-ink-faint">
+                Mostrate le 8 più recenti su {fatture.length}.
+              </p>
+            )}
+          </Card>
+
+          <Card padding={false}>
+            <div className="p-5 pb-3">
+              <CardHeader
+                titolo="Preventivi"
+                azione={
+                  <Link
+                    to="/preventivi"
+                    className="text-xs font-medium text-blue-400 hover:text-blue-300"
+                  >
+                    Vedi tutti
+                  </Link>
+                }
+              />
+            </div>
+            {preventivi.length === 0 ? (
+              <StatoVuoto titolo="Nessun preventivo per questo cliente" />
+            ) : (
+              <Tabella larghezzaMinima="sm:min-w-[520px]">
+                <TabellaHead>
+                  <Th>Numero</Th>
+                  <Th>Data</Th>
+                  <Th>Stato</Th>
+                  <Th allineamento="right">Importo</Th>
+                </TabellaHead>
+                <tbody>
+                  {preventivi.slice(0, 8).map((preventivo) => (
+                    <Tr
+                      key={preventivo.id}
+                      onClick={() => navigate(`/preventivi/${preventivo.id}`)}
+                    >
+                      <Td className="whitespace-nowrap">
+                        <span className="flex items-center gap-2">
+                          <FileText size={14} className="text-ink-faint" />
+                          {preventivo.numero}
+                        </span>
+                      </Td>
+                      <Td className="whitespace-nowrap">{formatData(preventivo.data)}</Td>
+                      <Td>
+                        <Badge
+                          className={STATI_PREVENTIVO[statoPreventivoEffettivo(preventivo)].badge}
+                        >
+                          {STATI_PREVENTIVO[statoPreventivoEffettivo(preventivo)].label}
+                        </Badge>
+                      </Td>
+                      <Td allineamento="right" className="font-semibold text-ink">
+                        {formatEuro(totalePreventivo(preventivo))}
                       </Td>
                     </Tr>
                   ))}
