@@ -7,6 +7,7 @@ import { Modal } from '@/components/ui/Modal'
 import { useIntestazione } from '@/components/layout/intestazione'
 import { useGestionale } from '@/data/store'
 import { componiNumero, formatoValido } from '@/lib/documenti'
+import { PannelloServer } from '@/components/sincronizzazione/PannelloServer'
 import type { Azienda } from '@/types'
 
 export function Impostazioni() {
@@ -174,6 +175,8 @@ export function Impostazioni() {
               </Campo>
             </div>
           </Card>
+
+          <PannelloServer />
 
           <Card>
             <CardHeader

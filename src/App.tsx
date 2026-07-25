@@ -2,6 +2,7 @@ import { createBrowserRouter, createHashRouter, RouterProvider } from 'react-rou
 import { AppLayout } from '@/components/layout/AppLayout'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { GestionaleProvider } from '@/data/store'
+import { SincronizzazioneProvider } from '@/data/sincronizzazione'
 import { Dashboard } from '@/pages/Dashboard'
 import { ClientiList } from '@/pages/clienti/ClientiList'
 import { DettaglioCliente } from '@/pages/clienti/DettaglioCliente'
@@ -63,7 +64,9 @@ export function App() {
   return (
     <ErrorBoundary>
       <GestionaleProvider>
-        <RouterProvider router={router} />
+        <SincronizzazioneProvider>
+          <RouterProvider router={router} />
+        </SincronizzazioneProvider>
       </GestionaleProvider>
     </ErrorBoundary>
   )

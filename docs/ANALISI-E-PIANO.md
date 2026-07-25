@@ -318,7 +318,24 @@ firma leggibile, stati scaduti calcolati, nuovo preventivo con numerazione corre
 errore in console. La vista a schede su telefono è stata verificata sul CSS compilato
 (media query e cascata corrette) ma non visivamente su un dispositivo stretto.
 
+## 8. Fase 5 (26/07/2026)
+
+- **Suite di test**: Vitest con fuso orario fissato, 109 test su calcoli IVA,
+  finestre temporali, validazione dell'archivio, numerazione, stati derivati,
+  ricerca globale e logica di sincronizzazione.
+- **Registro dei movimenti di magazzino** con causale, riferimento e giacenza
+  risultante; **cronologia dei passaggi di stato** delle riparazioni.
+- **Backend Cloudflare Workers + D1** (`server/`): accesso con password
+  condivisa, token di sessione firmati, sincronizzazione per record con
+  risoluzione dei conflitti a favore del server e lapidi per le eliminazioni.
+  Verificato in locale: accesso, conflitto fra due postazioni, propagazione
+  delle eliminazioni e restrizione CORS.
+- **Vista a schede su schermo stretto** verificata a 390px su riparazioni,
+  clienti e fatture.
+
 ### Non ancora affrontato
-- Fase 5: backend, test automatici, storico dei movimenti, sincronizzazione multi-postazione.
+- Trasferimento di foto e firme al server (tabella `allegato` già predisposta):
+  oggi restano sulla postazione che le ha acquisite.
 - Anagrafica fornitori strutturata (si è scelto l'elenco suggerito con normalizzazione).
 - FatturaPA / XML per lo SDI.
+- Test di integrazione sull'interfaccia (la suite copre la logica, non i componenti).

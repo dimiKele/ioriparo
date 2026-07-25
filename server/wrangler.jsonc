@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ioriparo-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-01",
+  "observability": { "enabled": true },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ioriparo-db",
+      "database_id": "165b6b9d-1e95-4e5c-92f0-743f5d111342",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    // Origini autorizzate a chiamare l'API, separate da virgola.
+    // In sviluppo il frontend gira su Vite; in produzione va indicato il
+    // dominio da cui è servito il gestionale.
+    "ORIGINI_AMMESSE": "http://localhost:5173,http://localhost:5174"
+  }
+  // Segreti da impostare con `wrangler secret put` (non stanno nel repository):
+  //   PASSWORD_NEGOZIO  password condivisa di accesso
+  //   CHIAVE_FIRMA      chiave usata per firmare i token di sessione
+}

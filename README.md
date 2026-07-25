@@ -19,6 +19,7 @@ Altri comandi:
 npm run build      # controllo dei tipi + build di produzione in dist/
 npm run preview    # anteprima della build
 npm run lint       # oxlint
+npm test           # suite Vitest
 ```
 
 ## Stack
@@ -87,6 +88,40 @@ Le foto acquisite in accettazione sono ridimensionate e ricompresse prima di ess
 Le date del dataset sono calcolate rispetto al giorno corrente, così dashboard, incassi del mese
 e scadenze restano sempre significativi. Da *Impostazioni* si possono ripristinare i dati
 dimostrativi, da *Backup* esportare e reimportare l'archivio.
+
+## Server del negozio (opzionale)
+
+Senza server il gestionale funziona su un solo dispositivo. Il backend in
+`server/` — Cloudflare Workers + D1 — permette a più postazioni di condividere
+lo stesso archivio continuando a lavorare quando la rete manca.
+
+```bash
+cd server
+npm install
+npx wrangler d1 migrations apply ioriparo-db --remote   # crea le tabelle
+npx wrangler secret put PASSWORD_NEGOZIO                # password condivisa
+npx wrangler secret put CHIAVE_FIRMA                    # chiave dei token di sessione
+npx wrangler deploy
+```
+
+Poi in *Impostazioni → Server del negozio* si indica l'indirizzo del Worker e
+si inserisce la password. Va aggiunta l'origine da cui è servito il gestionale
+alla variabile `ORIGINI_AMMESSE` in `server/wrangler.jsonc`.
+
+Come funziona la sincronizzazione:
+
+- L'archivio locale resta quello su cui l'applicazione lavora: una caduta di
+  rete non impedisce di accettare un dispositivo o consultare una scheda.
+- Si sincronizza **un record per volta**, quindi due postazioni che modificano
+  schede diverse non si sovrascrivono.
+- In caso di conflitto **vince la versione del server**: la modifica arrivata
+  per ultima non può cancellare in silenzio quella di un collega, e la
+  postazione adotta la versione remota segnalandolo.
+- Le eliminazioni lasciano una lapide, altrimenti un record cancellato
+  tornerebbe indietro dalla postazione che era offline.
+- **Foto e firme non vengono ancora trasferite** e restano sul dispositivo che
+  le ha acquisite: un record D1 non può superare 1 MB. La tabella `allegato`
+  è già predisposta per il passo successivo.
 
 ## Compilazione e pubblicazione
 
