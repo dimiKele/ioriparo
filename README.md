@@ -101,10 +101,28 @@ alla radice restituisce un errore di autenticazione. Per pubblicare una nuova
 versione dell'interfaccia bastano `npm run build` e `npx wrangler deploy` dalla
 radice del progetto; l'API si aggiorna separatamente da `server/`.
 
-**Prima di collegare la prima postazione**: l'applicazione parte sempre con
-l'archivio dimostrativo, e collegandosi lo invia al server. Conviene quindi
-importare il backup reale (o ripristinare i dati dimostrativi se si vuole
-partire da lì) *prima* di inserire la password del negozio.
+## Accesso
+
+All'apertura il gestionale chiede la password del negozio: l'archivio non
+compare finché non si entra. L'indirizzo del server è già proposto (si fissa in
+compilazione con `VITE_SERVER`, vedi `.env.production`).
+
+- **Senza rete**: al primo accesso riuscito la postazione conserva un'impronta
+  della password (PBKDF2, mai la password in chiaro). Se la linea è giù si
+  entra lo stesso con la stessa password e si lavora sulla copia locale.
+- **Senza server**: *Continua solo su questo dispositivo* apre il gestionale
+  in locale, senza condivisione fra postazioni. La scelta si ricorda e si
+  annulla collegando un server da *Impostazioni*.
+- **Blocca l'archivio**: nel menu utente in alto a destra; riporta alla
+  schermata di accesso senza cancellare nulla.
+- Una postazione che si collega a un negozio che ha già i suoi dati **scarica
+  l'archivio dal server** invece di mandargli quello dimostrativo.
+
+Va detto con chiarezza: la schermata di accesso nasconde i dati alla vista, non
+li cifra. La copia locale resta leggibile negli strumenti per sviluppatori del
+browser, ed è una scelta consapevole — le postazioni sono del negozio, e
+cifrare la copia locale significherebbe perderla insieme a una password
+dimenticata.
 
 ## Server del negozio (opzionale)
 

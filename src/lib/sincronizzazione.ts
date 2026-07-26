@@ -76,6 +76,12 @@ export interface ConfigurazioneServer {
 
 const CHIAVE_CONFIGURAZIONE = 'ioriparo:server:v1'
 
+/**
+ * Indirizzo proposto all'accesso, fissato in fase di compilazione.
+ * Evita di far digitare un URL al banco, dove si sbaglia facilmente.
+ */
+export const SERVER_PREDEFINITO: string = import.meta.env.VITE_SERVER ?? ''
+
 export function leggiConfigurazione(): ConfigurazioneServer | null {
   try {
     const grezzo = window.localStorage.getItem(CHIAVE_CONFIGURAZIONE)
@@ -131,11 +137,14 @@ async function chiamata(
     throw new ErroreServer('Server non raggiungibile.')
   }
 
-  if (risposta.status === 401) throw new ErroreServer('Sessione scaduta.', true)
-
   const corpo = (await risposta.json().catch(() => null)) as { errore?: string } | null
   if (!risposta.ok) {
-    throw new ErroreServer(corpo?.errore ?? `Il server ha risposto ${risposta.status}.`)
+    // Il messaggio arriva dal server: un 401 all'accesso è una password
+    // sbagliata, altrove è una sessione da rinnovare, e dirlo bene conta.
+    throw new ErroreServer(
+      corpo?.errore ?? `Il server ha risposto ${risposta.status}.`,
+      risposta.status === 401,
+    )
   }
   return corpo
 }
@@ -302,6 +311,48 @@ export function calcolaModifiche(
   }
 
   return modifiche
+}
+
+/**
+ * Archivio ricostruito dai soli record del server.
+ *
+ * Serve quando una postazione si collega per la prima volta a un negozio che
+ * ha già i suoi dati: senza questo passaggio le manderebbe l'archivio
+ * dimostrativo con cui ogni installazione parte.
+ */
+export function componiArchivio(
+  record: RecordRemoto[],
+  predefinito: DatabaseGestionale,
+): DatabaseGestionale {
+  const vuoto: DatabaseGestionale = {
+    clienti: [],
+    riparazioni: [],
+    preventivi: [],
+    fatture: [],
+    magazzino: [],
+    ordini: [],
+    scadenze: [],
+    impianti: [],
+    movimenti: [],
+    azienda: predefinito.azienda,
+  }
+  return applica(vuoto, record)
+}
+
+/** Legge l'archivio completo del server. */
+export async function scaricaArchivio(
+  configurazione: ConfigurazioneServer,
+): Promise<EsitoSincronizzazione> {
+  const esito = (await chiamata(configurazione, '/api/sincronizza?da=0', {
+    method: 'GET',
+  })) as EsitoSincronizzazione
+
+  return {
+    istante: esito.istante,
+    record: Array.isArray(esito.record) ? esito.record : [],
+    allegati: Array.isArray(esito.allegati) ? esito.allegati : [],
+    rifiutati: [],
+  }
 }
 
 export interface RichiestaSincronizzazione {

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Bell, ChevronDown, ChevronRight, Menu, Search, User } from 'lucide-react'
+import { Bell, ChevronDown, ChevronRight, Lock, Menu, Search, User } from 'lucide-react'
 import { useGestionale } from '@/data/store'
 import { articoliSottoScorta, scadenzeImminenti } from '@/data/metriche'
 import { useIntestazioneCorrente } from './intestazione'
+import { useAccesso } from '@/data/accesso'
 import { DeviceIcon } from '@/components/ui/DeviceIcon'
 import { cn } from '@/lib/cn'
 import { giorniAllaData, scadenzaRelativa } from '@/lib/format'
@@ -29,6 +30,7 @@ export function Topbar({ onApriMenu }: { onApriMenu: () => void }) {
   const [notificheAperte, setNotificheAperte] = useState(false)
   const [utenteAperto, setUtenteAperto] = useState(false)
   const contenitoreRicerca = useRef<HTMLDivElement>(null)
+  const { blocca } = useAccesso()
 
   // Chiude i menu a tendina quando si clicca fuori. I `setState` sono
   // condizionati perché questo gestore scatta a ogni click dell'applicazione.
@@ -336,6 +338,17 @@ export function Topbar({ onApriMenu }: { onApriMenu: () => void }) {
             >
               Backup / Esportazioni
             </Link>
+            <button
+              type="button"
+              onClick={() => {
+                setUtenteAperto(false)
+                blocca()
+              }}
+              className="flex w-full items-center gap-2 rounded-lg border-t border-line px-3 py-2 text-left text-sm text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink"
+            >
+              <Lock size={15} />
+              Blocca l’archivio
+            </button>
           </div>
         )}
       </div>

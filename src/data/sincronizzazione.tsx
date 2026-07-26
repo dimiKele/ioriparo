@@ -16,6 +16,8 @@ import {
   ErroreServer,
   leggiConfigurazione,
   salvaConfigurazione,
+  componiArchivio,
+  scaricaArchivio,
   scomponi,
   sessioneAttiva,
   sincronizza as inviaSincronizzazione,
@@ -24,6 +26,7 @@ import {
   type MetadatoAllegato,
 } from '@/lib/sincronizzazione'
 import { allineaAllegati } from '@/lib/allegati'
+import { memorizzaPassword } from '@/lib/accesso'
 import type { DatabaseGestionale } from '@/types'
 
 /** Ogni quanto riallinearsi quando l'operatore non fa nulla. */
@@ -212,12 +215,30 @@ export function SincronizzazioneProvider({ children }: { children: ReactNode }) 
       verifica: (indirizzo) => verificaServer(indirizzo),
       collega: async (indirizzo, password) => {
         const nuova = await accediAlServer(indirizzo, password)
+
         // Cambiando server si riparte da zero: il cursore del precedente non
         // ha alcun significato su un archivio diverso.
-        if (nuova.indirizzo !== configurazione?.indirizzo) {
+        const cambiaServer = nuova.indirizzo !== configurazione?.indirizzo
+        if (cambiaServer) {
           scriviCursore(0)
           allineato.current = null
         }
+
+        // Se il negozio ha già i suoi dati, questa postazione li adotta invece
+        // di mandare l'archivio dimostrativo con cui ogni installazione parte.
+        if (cambiaServer || leggiCursore() === 0) {
+          const esito = await scaricaArchivio(nuova)
+          if (esito.record.length > 0) {
+            const archivio = componiArchivio(esito.record, dbRef.current)
+            importaDatabase(archivio)
+            allineato.current = archivio
+            scriviCursore(esito.istante)
+            setUltimoAllineamento(esito.istante)
+          }
+        }
+
+        // L'impronta serve a rientrare quando la linea è giù.
+        await memorizzaPassword(password)
         aggiornaConfigurazione(nuova)
       },
       scollega: () => {
@@ -240,6 +261,7 @@ export function SincronizzazioneProvider({ children }: { children: ReactNode }) 
       conflitti,
       allinea,
       aggiornaConfigurazione,
+      importaDatabase,
     ],
   )
 

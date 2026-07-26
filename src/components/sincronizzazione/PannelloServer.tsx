@@ -4,6 +4,7 @@ import { Card, CardHeader } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Campo, Input } from '@/components/ui/Form'
 import { useSincronizzazione } from '@/data/sincronizzazione'
+import { SERVER_PREDEFINITO } from '@/lib/sincronizzazione'
 import { formatDataOra } from '@/lib/format'
 
 const DESCRIZIONE_STATO: Record<string, string> = {
@@ -20,7 +21,7 @@ export function PannelloServer() {
   const { stato, configurazione, daInviare, ultimoAllineamento, messaggio, verifica, collega, scollega, allineaAdesso } =
     useSincronizzazione()
 
-  const [indirizzo, setIndirizzo] = useState(configurazione?.indirizzo ?? '')
+  const [indirizzo, setIndirizzo] = useState(configurazione?.indirizzo ?? SERVER_PREDEFINITO)
   const [password, setPassword] = useState('')
   const [errore, setErrore] = useState('')
   const [avviso, setAvviso] = useState('')

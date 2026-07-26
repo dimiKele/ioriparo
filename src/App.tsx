@@ -3,6 +3,7 @@ import { AppLayout } from '@/components/layout/AppLayout'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { GestionaleProvider } from '@/data/store'
 import { SincronizzazioneProvider } from '@/data/sincronizzazione'
+import { PortaDiAccesso } from '@/data/accesso'
 import { Dashboard } from '@/pages/Dashboard'
 import { ClientiList } from '@/pages/clienti/ClientiList'
 import { DettaglioCliente } from '@/pages/clienti/DettaglioCliente'
@@ -65,7 +66,9 @@ export function App() {
     <ErrorBoundary>
       <GestionaleProvider>
         <SincronizzazioneProvider>
-          <RouterProvider router={router} />
+          <PortaDiAccesso>
+            <RouterProvider router={router} />
+          </PortaDiAccesso>
         </SincronizzazioneProvider>
       </GestionaleProvider>
     </ErrorBoundary>
