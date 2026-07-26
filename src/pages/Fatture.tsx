@@ -361,7 +361,14 @@ export function Fatture() {
         </div>
 
         {elenco.totale === 0 ? (
-          <StatoVuoto titolo="Nessuna fattura trovata" />
+          <StatoVuoto
+            titolo={db.fatture.length === 0 ? 'Nessuna fattura emessa' : 'Nessuna fattura trovata'}
+            descrizione={
+              db.fatture.length === 0
+                ? 'La numerazione parte dal primo documento che emetti; il formato si imposta in Impostazioni.'
+                : undefined
+            }
+          />
         ) : (
           <>
             <Tabella>

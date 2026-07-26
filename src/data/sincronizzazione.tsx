@@ -12,7 +12,10 @@ import { useGestionale } from './store'
 import {
   accedi as accediAlServer,
   applica,
-  calcolaModifiche,
+  firmeArchivio,
+  leggiFirme,
+  modificheDaFirme,
+  scriviFirme,
   ErroreServer,
   leggiConfigurazione,
   salvaConfigurazione,
@@ -27,7 +30,6 @@ import {
 } from '@/lib/sincronizzazione'
 import { allineaAllegati } from '@/lib/allegati'
 import { memorizzaPassword } from '@/lib/accesso'
-import type { DatabaseGestionale } from '@/types'
 
 /** Ogni quanto riallinearsi quando l'operatore non fa nulla. */
 const INTERVALLO_MS = 60_000
@@ -92,11 +94,12 @@ export function SincronizzazioneProvider({ children }: { children: ReactNode }) 
   const [ultimoAllineamento, setUltimoAllineamento] = useState<number | null>(null)
 
   /**
-   * Archivio com'era all'ultimo allineamento riuscito: è la base del
+   * Firme dell'archivio all'ultimo allineamento riuscito: è la base del
    * confronto, e resta indietro rispetto a `db` esattamente di ciò che
-   * dev'essere ancora inviato.
+   * dev'essere ancora inviato. Vive anche in `localStorage`, così un
+   * ricaricamento della pagina non fa ripartire da capo l'intero archivio.
    */
-  const allineato = useRef<DatabaseGestionale | null>(null)
+  const firme = useRef(leggiFirme())
   const inCorso = useRef(false)
   const dbRef = useRef(db)
   dbRef.current = db
@@ -121,8 +124,8 @@ export function SincronizzazioneProvider({ children }: { children: ReactNode }) 
       // devono finire nella base, così la passata successiva le riconosce.
       const partenza = dbRef.current
       const cursore = leggiCursore()
-      const modifiche = allineato.current
-        ? calcolaModifiche(allineato.current, partenza)
+      const modifiche = firme.current
+        ? modificheDaFirme(firme.current, partenza)
         : scomponi(partenza)
 
       const esito = await inviaSincronizzazione({
@@ -140,7 +143,8 @@ export function SincronizzazioneProvider({ children }: { children: ReactNode }) 
 
       // La base include i record accettati dal server e quelli adottati; i
       // rifiutati sono già stati rimandati dal server, quindi vi rientrano.
-      allineato.current = applica(partenza, esito.record)
+      firme.current = firmeArchivio(applica(partenza, esito.record))
+      scriviFirme(firme.current)
 
       scriviCursore(esito.istante)
       setUltimoAllineamento(esito.istante)
@@ -195,7 +199,7 @@ export function SincronizzazioneProvider({ children }: { children: ReactNode }) 
   // modifica locale, così il collega la vede subito.
   useEffect(() => {
     if (!collegato) return
-    const inSospeso = allineato.current ? calcolaModifiche(allineato.current, db).length : 0
+    const inSospeso = firme.current ? modificheDaFirme(firme.current, db).length : 0
     setDaInviare(inSospeso)
     if (inSospeso === 0) return
 
@@ -221,17 +225,23 @@ export function SincronizzazioneProvider({ children }: { children: ReactNode }) 
         const cambiaServer = nuova.indirizzo !== configurazione?.indirizzo
         if (cambiaServer) {
           scriviCursore(0)
-          allineato.current = null
+          firme.current = null
+          scriviFirme(null)
         }
 
         // Se il negozio ha già i suoi dati, questa postazione li adotta invece
-        // di mandare l'archivio dimostrativo con cui ogni installazione parte.
+        // di sovrascriverli con i propri.
         if (cambiaServer || leggiCursore() === 0) {
           const esito = await scaricaArchivio(nuova)
-          if (esito.record.length > 0) {
+          // Solo i record vivi contano: un server che porta soltanto lapidi è
+          // un archivio svuotato, e adottarlo cancellerebbe in silenzio quel
+          // che c'è su questa postazione. Le cancellazioni arrivano comunque,
+          // per la via normale, al primo allineamento.
+          if (esito.record.some((voce) => !voce.eliminato)) {
             const archivio = componiArchivio(esito.record, dbRef.current)
             importaDatabase(archivio)
-            allineato.current = archivio
+            firme.current = firmeArchivio(archivio)
+            scriviFirme(firme.current)
             scriviCursore(esito.istante)
             setUltimoAllineamento(esito.istante)
           }
@@ -244,7 +254,8 @@ export function SincronizzazioneProvider({ children }: { children: ReactNode }) 
       scollega: () => {
         aggiornaConfigurazione(null)
         scriviCursore(0)
-        allineato.current = null
+        firme.current = null
+        scriviFirme(null)
         setStato('non_configurato')
         setMessaggio('')
         setConflitti(0)

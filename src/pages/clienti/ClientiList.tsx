@@ -262,8 +262,12 @@ export function ClientiList() {
 
         {elenco.totale === 0 ? (
           <StatoVuoto
-            titolo="Nessun cliente trovato"
-            descrizione="Modifica la ricerca oppure inserisci un nuovo cliente in anagrafica."
+            titolo={db.clienti.length === 0 ? 'Anagrafica ancora vuota' : 'Nessun cliente trovato'}
+            descrizione={
+              db.clienti.length === 0
+                ? 'Registra il primo cliente: riparazioni, preventivi e fatture partono da qui.'
+                : 'Modifica la ricerca oppure inserisci un nuovo cliente in anagrafica.'
+            }
           />
         ) : (
           <>

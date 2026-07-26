@@ -8,6 +8,7 @@
  */
 
 import { ErroreServer, type ConfigurazioneServer, type MetadatoAllegato } from './sincronizzazione'
+import { impronta } from './impronta'
 import type { RiferimentoAllegato, Riparazione } from '@/types'
 
 /** Prefisso degli identificativi generati per gli allegati. */
@@ -18,19 +19,10 @@ function nuovoIdAllegato(): string {
 }
 
 /**
- * Impronta del contenuto di un'immagine (FNV-1a a 32 bit più la lunghezza).
- *
- * Non serve a fini di sicurezza, solo a distinguere un'immagine da un'altra:
- * dice se quella che ho in mano è già stata caricata oppure è stata sostituita.
+ * Riesportata perché qui l'impronta ha un significato preciso: dice se
+ * l'immagine che ho in mano è già stata caricata oppure è stata sostituita.
  */
-export function impronta(dataUrl: string): string {
-  let hash = 0x811c9dc5
-  for (let i = 0; i < dataUrl.length; i++) {
-    hash ^= dataUrl.charCodeAt(i)
-    hash = Math.imul(hash, 0x01000193)
-  }
-  return `${(hash >>> 0).toString(36)}-${dataUrl.length.toString(36)}`
-}
+export { impronta }
 
 /** `data:image/jpeg;base64,…` → byte e tipo MIME. */
 export function daDataUrl(dataUrl: string): { byte: Uint8Array; tipoMime: string } | null {

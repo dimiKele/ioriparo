@@ -396,7 +396,12 @@ export function OrdiniFornitori() {
 
         {elenco.totale === 0 ? (
           <StatoVuoto
-            titolo="Nessun ordine trovato"
+            titolo={db.ordini.length === 0 ? 'Nessun ordine registrato' : 'Nessun ordine trovato'}
+            descrizione={
+              db.ordini.length === 0
+                ? 'Registra un ordine al fornitore: alla consegna le quantità entrano in magazzino.'
+                : undefined
+            }
             azione={
               <Button variante="primario" dimensione="sm" onClick={apriNuovo}>
                 <Plus size={14} />

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   applica,
-  calcolaModifiche,
+  firmeArchivio,
   conservaAllegati,
   ID_AZIENDA,
+  modificheDaFirme,
   scomponi,
   senzaAllegati,
   sessioneAttiva,
@@ -15,11 +16,6 @@ function cliente(id: string, nome: string): Cliente {
   return { id, nome, tipo: 'privato', telefono: '333', creatoIl: '2026-01-01' }
 }
 
-/**
- * Riferimento condiviso: il confronto delle modifiche è per riferimento, e
- * ricreare l'oggetto a ogni archivio farebbe apparire l'anagrafica aziendale
- * come sempre modificata.
- */
 const AZIENDA: DatabaseGestionale['azienda'] = {
   nome: 'Test',
   claim: '',
@@ -51,16 +47,16 @@ function archivio(parziale: Partial<DatabaseGestionale> = {}): DatabaseGestional
   }
 }
 
-describe('calcolaModifiche', () => {
+describe('modificheDaFirme', () => {
   it('su un archivio invariato non propone nulla', () => {
     const db = archivio({ clienti: [cliente('c1', 'Mario')] })
-    expect(calcolaModifiche(db, db)).toEqual([])
+    expect(modificheDaFirme(firmeArchivio(db), db)).toEqual([])
   })
 
   it('rileva un record aggiunto', () => {
     const prima = archivio({ clienti: [cliente('c1', 'Mario')] })
     const dopo = archivio({ clienti: [...prima.clienti, cliente('c2', 'Anna')] })
-    const modifiche = calcolaModifiche(prima, dopo)
+    const modifiche = modificheDaFirme(firmeArchivio(prima), dopo)
     expect(modifiche).toHaveLength(1)
     expect(modifiche[0]).toMatchObject({ collezione: 'clienti', id: 'c2', eliminato: false })
   })
@@ -69,14 +65,14 @@ describe('calcolaModifiche', () => {
     const invariato = cliente('c1', 'Mario')
     const prima = archivio({ clienti: [invariato, cliente('c2', 'Anna')] })
     const dopo = archivio({ clienti: [invariato, cliente('c2', 'Anna Bianchi')] })
-    const modifiche = calcolaModifiche(prima, dopo)
-    expect(modifiche.map((m) => m.id)).toEqual(['c2'])
+    const modifiche = modificheDaFirme(firmeArchivio(prima), dopo)
+    expect(modifiche.map((modifica) => modifica.id)).toEqual(['c2'])
   })
 
   it('segnala le eliminazioni, altrimenti il record tornerebbe indietro', () => {
     const prima = archivio({ clienti: [cliente('c1', 'Mario')] })
     const dopo = archivio({ clienti: [] })
-    expect(calcolaModifiche(prima, dopo)).toEqual([
+    expect(modificheDaFirme(firmeArchivio(prima), dopo)).toEqual([
       { collezione: 'clienti', id: 'c1', dati: null, eliminato: true },
     ])
   })
@@ -84,9 +80,21 @@ describe('calcolaModifiche', () => {
   it('rileva il cambio dei dati aziendali', () => {
     const prima = archivio()
     const dopo = archivio({ azienda: { ...AZIENDA, nome: 'Nuovo nome' } })
-    const modifiche = calcolaModifiche(prima, dopo)
+    const modifiche = modificheDaFirme(firmeArchivio(prima), dopo)
     expect(modifiche).toHaveLength(1)
     expect(modifiche[0]).toMatchObject({ collezione: 'azienda', id: ID_AZIENDA })
+  })
+
+  it('sopravvive a un ricaricamento della pagina', () => {
+    // È il difetto che rimetteva in vita i dati cancellati: le firme vengono
+    // rilette da localStorage, quindi gli oggetti dell'archivio sono tutti
+    // nuovi. Un confronto per riferimento segnalerebbe qui l'intero archivio
+    // come modificato e lo rispedirebbe al server.
+    const db = archivio({ clienti: [cliente('c1', 'Mario'), cliente('c2', 'Anna')] })
+    const dopoRicaricamento = JSON.parse(JSON.stringify(db)) as DatabaseGestionale
+    const firmeRilette = JSON.parse(JSON.stringify(firmeArchivio(db)))
+
+    expect(modificheDaFirme(firmeRilette, dopoRicaricamento)).toEqual([])
   })
 
   it('non invia foto e firme, che supererebbero il limite per record', () => {
@@ -105,7 +113,7 @@ describe('calcolaModifiche', () => {
       foto: ['data:image/jpeg;base64,AAAA'],
       firmaCliente: 'data:image/png;base64,BBBB',
     }
-    const modifiche = calcolaModifiche(archivio(), archivio({ riparazioni: [riparazione] }))
+    const modifiche = modificheDaFirme(firmeArchivio(archivio()), archivio({ riparazioni: [riparazione] }))
     const inviato = modifiche[0].dati as Record<string, unknown>
     expect(inviato.foto).toBeUndefined()
     expect(inviato.firmaCliente).toBeUndefined()

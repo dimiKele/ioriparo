@@ -272,7 +272,14 @@ export function Impianti() {
       {filtrati.length === 0 ? (
         <Card>
           <StatoVuoto
-            titolo="Nessun impianto trovato"
+            titolo={
+              db.impianti.length === 0 ? 'Nessun impianto censito' : 'Nessun impianto trovato'
+            }
+            descrizione={
+              db.impianti.length === 0
+                ? 'Censisci gli impianti che segui: da ogni manutenzione nasce un promemoria in agenda.'
+                : undefined
+            }
             azione={
               <Button variante="primario" dimensione="sm" onClick={apriNuovo}>
                 <Plus size={14} />

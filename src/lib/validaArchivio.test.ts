@@ -5,7 +5,7 @@ import {
   validaArchivio,
   VERSIONE_ARCHIVIO,
 } from './validaArchivio'
-import { creaDatabaseIniziale } from '@/data/seed'
+import { creaDatabaseDimostrativo, creaDatabaseIniziale } from '@/data/seed'
 import type { DatabaseGestionale } from '@/types'
 
 const riferimento = (): DatabaseGestionale => creaDatabaseIniziale()
@@ -236,20 +236,35 @@ describe('riparazione dei dati incoerenti', () => {
   })
 })
 
+describe('archivio iniziale', () => {
+  it('una postazione nuova parte vuota', () => {
+    // Un gestionale in uso reale non deve inventarsi clienti e fatture, e
+    // soprattutto non deve spedirli al server alla prima sincronizzazione.
+    const iniziale = creaDatabaseIniziale()
+    expect(iniziale.clienti).toEqual([])
+    expect(iniziale.riparazioni).toEqual([])
+    expect(iniziale.fatture).toEqual([])
+    expect(iniziale.magazzino).toEqual([])
+    expect(iniziale.azienda.nome).toBeTypeOf('string')
+  })
+})
+
 describe('archivio dimostrativo', () => {
   it('supera la validazione senza alcuna correzione', () => {
-    const { avvisi } = validaArchivio(riferimento(), riferimento())
+    const { avvisi } = validaArchivio(creaDatabaseDimostrativo(), riferimento())
     expect(avvisi).toEqual([])
   })
 
   it('sopravvive a un giro completo di esportazione e reimportazione', () => {
-    const originale = riferimento()
+    // Il giro va provato su dati veri: un archivio vuoto passerebbe sempre.
+    const originale = creaDatabaseDimostrativo()
     const serializzato = JSON.parse(
       JSON.stringify(preparaEsportazione(originale, '2026-07-26T10:00:00.000Z')),
     )
     const { db, avvisi } = validaArchivio(serializzato, riferimento())
     expect(avvisi).toEqual([])
     expect(db.clienti).toHaveLength(originale.clienti.length)
+    expect(db.clienti.length).toBeGreaterThan(0)
     expect(db.riparazioni).toHaveLength(originale.riparazioni.length)
     expect(db.fatture).toHaveLength(originale.fatture.length)
   })

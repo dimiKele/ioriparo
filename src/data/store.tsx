@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { creaDatabaseIniziale } from './seed'
+import { creaDatabaseDimostrativo, creaDatabaseIniziale } from './seed'
 import { validaArchivio } from '@/lib/validaArchivio'
 import { FORMATO_ORDINE, componiNumero, prossimoProgressivo } from '@/lib/documenti'
 import type {
@@ -73,7 +73,7 @@ function caricaDatabase(): CaricamentoArchivio {
     return {
       db: iniziale,
       avvisi: [
-        'L’archivio salvato nel browser non era leggibile: sono stati ripristinati i dati dimostrativi.',
+        'L’archivio salvato nel browser non era leggibile ed è stato azzerato. Se hai un backup, importalo da Backup / Esportazioni.',
       ],
     }
   }
@@ -138,8 +138,10 @@ interface ContestoGestionale {
   eliminaImpianto: (id: string) => void
   aggiornaAzienda: (modifiche: Partial<Azienda>) => void
 
-  /** Ripristina i dati dimostrativi scartando le modifiche locali. */
-  ripristinaDemo: () => void
+  /** Svuota l'archivio di questo dispositivo. */
+  svuotaArchivio: () => void
+  /** Carica i dati di esempio, per provare l'applicazione. */
+  caricaDatiDimostrativi: () => void
   /** Sostituisce l'intero archivio (import di un backup già validato). */
   importaDatabase: (db: DatabaseGestionale) => void
 
@@ -443,7 +445,7 @@ export function GestionaleProvider({ children }: { children: ReactNode }) {
       aggiornaAzienda: (modifiche) =>
         setDb((p) => ({ ...p, azienda: { ...p.azienda, ...modifiche } })),
 
-      ripristinaDemo: () => {
+      svuotaArchivio: () => {
         try {
           window.localStorage.removeItem(CHIAVE_STORAGE)
         } catch {
@@ -452,6 +454,11 @@ export function GestionaleProvider({ children }: { children: ReactNode }) {
         setAvvisiArchivio([])
         setErroreArchivio(null)
         setDb(creaDatabaseIniziale())
+      },
+      caricaDatiDimostrativi: () => {
+        setAvvisiArchivio([])
+        setErroreArchivio(null)
+        setDb(creaDatabaseDimostrativo())
       },
       importaDatabase: (nuovoDb) => {
         setErroreArchivio(null)

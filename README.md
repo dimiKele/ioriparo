@@ -60,7 +60,7 @@ npm test           # suite Vitest
 src/
   types/          modelli di dominio (Cliente, Riparazione, Fattura, …)
   data/
-    seed.ts       dati dimostrativi generati rispetto alla data odierna
+    seed.ts       archivio iniziale (vuoto) e dataset dimostrativo su richiesta
     store.tsx     Context con le operazioni CRUD e persistenza su localStorage
     metriche.ts   aggregazioni per dashboard e statistiche
   lib/            formattazione italiana, calcoli IVA, configurazione degli stati,
@@ -74,8 +74,9 @@ src/
 
 ## Dati
 
-L'app non ha backend: all'avvio carica un archivio dimostrativo (24 riparazioni, 24 clienti,
-18 articoli di magazzino e circa tre mesi di fatture) e salva ogni modifica in `localStorage`
+Una postazione nuova **parte da un archivio vuoto**: solo i dati aziendali sono precompilati.
+Un gestionale in uso reale non deve inventarsi clienti e fatture, e soprattutto non deve
+spedirli al server alla prima sincronizzazione. Ogni modifica viene salvata in `localStorage`
 sotto la chiave `ioriparo:db:v1`.
 
 L'archivio viene **validato** sia al caricamento sia all'importazione di un backup
@@ -85,9 +86,12 @@ spazio esaurito — l'applicazione lo segnala invece di far lavorare l'utente su
 Le foto acquisite in accettazione sono ridimensionate e ricompresse prima di essere salvate
 (`src/lib/immagini.ts`).
 
-Le date del dataset sono calcolate rispetto al giorno corrente, così dashboard, incassi del mese
-e scadenze restano sempre significativi. Da *Impostazioni* si possono ripristinare i dati
-dimostrativi, da *Backup* esportare e reimportare l'archivio.
+Da *Impostazioni → Archivio locale* si può **svuotare l'archivio** oppure **caricare i dati di
+esempio** (24 riparazioni, 24 clienti, 18 articoli di magazzino e circa tre mesi di fatture, con
+date calcolate rispetto al giorno corrente perché dashboard e statistiche restino significative).
+Entrambe le azioni chiedono conferma: se la postazione è collegata a un server, il risultato si
+propaga alle altre alla sincronizzazione successiva. Da *Backup* si esporta e si reimporta
+l'archivio.
 
 ## Indirizzi in esercizio
 
@@ -116,7 +120,7 @@ compilazione con `VITE_SERVER`, vedi `.env.production`).
 - **Blocca l'archivio**: nel menu utente in alto a destra; riporta alla
   schermata di accesso senza cancellare nulla.
 - Una postazione che si collega a un negozio che ha già i suoi dati **scarica
-  l'archivio dal server** invece di mandargli quello dimostrativo.
+  l'archivio dal server** invece di sovrascriverlo con il proprio.
 
 Va detto con chiarezza: la schermata di accesso nasconde i dati alla vista, non
 li cifra. La copia locale resta leggibile negli strumenti per sviluppatori del
@@ -169,6 +173,12 @@ Come funziona la sincronizzazione:
   postazione adotta la versione remota segnalandolo.
 - Le eliminazioni lasciano una lapide, altrimenti un record cancellato
   tornerebbe indietro dalla postazione che era offline.
+- Ciò che va inviato si riconosce confrontando l'**impronta del contenuto** di
+  ogni record con quella dell'ultimo allineamento riuscito, conservata in
+  `localStorage`. Un confronto per identità di riferimento non sopravvive alla
+  chiusura della scheda: dopo un ricaricamento gli oggetti sono tutti nuovi,
+  l'archivio intero risulterebbe modificato e finirebbe di nuovo sul server,
+  riportando in vita anche quel che era stato cancellato altrove.
 - **Foto e firme viaggiano a parte**, verso il bucket, e vengono scaricate da
   ogni postazione la prima volta che servono. Nel record resta solo l'elenco
   dei riferimenti, con l'impronta del contenuto che dice se l'immagine è già

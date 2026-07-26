@@ -208,7 +208,18 @@ export function Scadenze() {
         </div>
 
         {filtrate.length === 0 ? (
-          <StatoVuoto titolo="Nessuna scadenza in questo filtro" />
+          <StatoVuoto
+            titolo={
+              db.scadenze.length === 0
+                ? 'Nessuna scadenza in agenda'
+                : 'Nessuna scadenza in questo filtro'
+            }
+            descrizione={
+              db.scadenze.length === 0
+                ? 'Annota tasse, rinnovi e promemoria: le manutenzioni degli impianti arrivano qui da sole.'
+                : undefined
+            }
+          />
         ) : (
           <ul className="divide-y divide-line">
             {filtrate.map((scadenza) => (

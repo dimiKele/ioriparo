@@ -10,6 +10,7 @@
  */
 
 import type { DatabaseGestionale } from '@/types'
+import { impronta } from './impronta'
 
 /** Collezioni sincronizzate, nell'ordine in cui vengono ricomposte. */
 export const COLLEZIONI_SINCRONIZZATE = [
@@ -267,41 +268,64 @@ export function applica(db: DatabaseGestionale, record: RecordRemoto[]): Databas
 }
 
 /**
- * Record modificati localmente rispetto all'ultimo allineamento.
+ * Firme dell'archivio all'ultimo allineamento riuscito: `collezione:id` →
+ * impronta del contenuto inviato.
  *
- * Il confronto è per riferimento: ogni modifica dello store crea un oggetto
- * nuovo e lascia intatti quelli non toccati, quindi basta questo per sapere
- * che cosa inviare, senza dover marcare a mano ogni operazione.
+ * Si conserva questa mappa invece di una copia dell'archivio perché deve
+ * sopravvivere alla chiusura della scheda. Un confronto per identità di
+ * riferimento non sopravvive: dopo un ricaricamento gli oggetti sono tutti
+ * nuovi, l'intero archivio risulterebbe modificato e verrebbe rispedito al
+ * server — riportando in vita anche ciò che era stato cancellato altrove.
  */
-export function calcolaModifiche(
-  precedente: DatabaseGestionale,
+export type FirmeArchivio = Record<string, string>
+
+const CHIAVE_FIRME = 'ioriparo:server:firme:v1'
+
+function chiaveRecord(collezione: CollezioneRemota, id: string): string {
+  return `${collezione}:${id}`
+}
+
+/** Impronta di un record, calcolata su ciò che viaggia davvero verso il server. */
+function firmaRecord(dati: unknown): string {
+  return impronta(JSON.stringify(dati ?? null))
+}
+
+/** Firme di tutto l'archivio, da usare come base del confronto successivo. */
+export function firmeArchivio(db: DatabaseGestionale): FirmeArchivio {
+  const firme: FirmeArchivio = {}
+
+  for (const collezione of COLLEZIONI_SINCRONIZZATE) {
+    for (const voce of db[collezione] as Array<{ id: string }>) {
+      firme[chiaveRecord(collezione, voce.id)] = firmaRecord(senzaAllegati(voce))
+    }
+  }
+  firme[chiaveRecord('azienda', ID_AZIENDA)] = firmaRecord(db.azienda)
+
+  return firme
+}
+
+/** Cosa è cambiato rispetto alle firme dell'ultimo allineamento. */
+export function modificheDaFirme(
+  firme: FirmeArchivio,
   corrente: DatabaseGestionale,
 ): Array<Omit<RecordRemoto, 'aggiornatoIl'>> {
   const modifiche: Array<Omit<RecordRemoto, 'aggiornatoIl'>> = []
+  const rimaste = new Set(Object.keys(firme))
 
   for (const collezione of COLLEZIONI_SINCRONIZZATE) {
-    const prima = precedente[collezione] as Array<{ id: string }>
-    const dopo = corrente[collezione] as Array<{ id: string }>
-    if (prima === dopo) continue
-
-    const indicePrima = new Map(prima.map((voce) => [voce.id, voce]))
-
-    for (const voce of dopo) {
-      const originale = indicePrima.get(voce.id)
-      if (originale !== voce) {
-        modifiche.push({ collezione, id: voce.id, dati: senzaAllegati(voce), eliminato: false })
+    for (const voce of corrente[collezione] as Array<{ id: string }>) {
+      const chiave = chiaveRecord(collezione, voce.id)
+      const dati = senzaAllegati(voce)
+      rimaste.delete(chiave)
+      if (firme[chiave] !== firmaRecord(dati)) {
+        modifiche.push({ collezione, id: voce.id, dati, eliminato: false })
       }
-      indicePrima.delete(voce.id)
-    }
-
-    // Ciò che resta nell'indice non c'è più: va segnalato come eliminato,
-    // altrimenti tornerebbe indietro al prossimo allineamento.
-    for (const rimosso of indicePrima.keys()) {
-      modifiche.push({ collezione, id: rimosso, dati: null, eliminato: true })
     }
   }
 
-  if (precedente.azienda !== corrente.azienda) {
+  const chiaveAzienda = chiaveRecord('azienda', ID_AZIENDA)
+  rimaste.delete(chiaveAzienda)
+  if (firme[chiaveAzienda] !== firmaRecord(corrente.azienda)) {
     modifiche.push({
       collezione: 'azienda',
       id: ID_AZIENDA,
@@ -310,7 +334,39 @@ export function calcolaModifiche(
     })
   }
 
+  // Ciò che era nelle firme e non c'è più è stato cancellato: va segnalato,
+  // altrimenti tornerebbe indietro al prossimo allineamento.
+  for (const chiave of rimaste) {
+    const separatore = chiave.indexOf(':')
+    modifiche.push({
+      collezione: chiave.slice(0, separatore) as CollezioneRemota,
+      id: chiave.slice(separatore + 1),
+      dati: null,
+      eliminato: true,
+    })
+  }
+
   return modifiche
+}
+
+export function leggiFirme(): FirmeArchivio | null {
+  try {
+    const grezzo = window.localStorage.getItem(CHIAVE_FIRME)
+    if (!grezzo) return null
+    const salvate = JSON.parse(grezzo) as unknown
+    return salvate && typeof salvate === 'object' ? (salvate as FirmeArchivio) : null
+  } catch {
+    return null
+  }
+}
+
+export function scriviFirme(firme: FirmeArchivio | null) {
+  try {
+    if (firme) window.localStorage.setItem(CHIAVE_FIRME, JSON.stringify(firme))
+    else window.localStorage.removeItem(CHIAVE_FIRME)
+  } catch {
+    // Senza firme si rispedisce tutto: più traffico, nessun dato perso.
+  }
 }
 
 /**

@@ -580,7 +580,31 @@ export const AZIENDA: Azienda = {
   formatoPreventivo: FORMATO_PREVENTIVO_PREDEFINITO,
 }
 
+/**
+ * Archivio con cui parte una postazione nuova: vuoto.
+ *
+ * Un gestionale in uso reale non deve inventarsi clienti e fatture. I dati
+ * dimostrativi restano disponibili, ma solo su richiesta esplicita da
+ * Impostazioni: caricarli da soli significherebbe anche spedirli al server
+ * alla prima sincronizzazione.
+ */
 export function creaDatabaseIniziale(): DatabaseGestionale {
+  return {
+    clienti: [],
+    riparazioni: [],
+    preventivi: [],
+    fatture: [],
+    magazzino: [],
+    ordini: [],
+    scadenze: [],
+    impianti: [],
+    movimenti: [],
+    azienda: AZIENDA,
+  }
+}
+
+/** Archivio di esempio, per provare l'applicazione senza dati veri. */
+export function creaDatabaseDimostrativo(): DatabaseGestionale {
   return {
     clienti: CLIENTI,
     riparazioni: RIPARAZIONI,

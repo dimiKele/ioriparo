@@ -330,7 +330,18 @@ export function Preventivi() {
         </div>
 
         {elenco.totale === 0 ? (
-          <StatoVuoto titolo="Nessun preventivo trovato" />
+          <StatoVuoto
+            titolo={
+              db.preventivi.length === 0
+                ? 'Nessun preventivo emesso'
+                : 'Nessun preventivo trovato'
+            }
+            descrizione={
+              db.preventivi.length === 0
+                ? 'Crea un preventivo da zero oppure generalo da una riparazione già accettata.'
+                : undefined
+            }
+          />
         ) : (
           <>
             <Tabella>

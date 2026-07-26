@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Check, RotateCcw, Save } from 'lucide-react'
+import { Check, FlaskConical, Save, Trash2 } from 'lucide-react'
 import { Card, CardHeader } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Campo, Input } from '@/components/ui/Form'
@@ -16,11 +16,12 @@ export function Impostazioni() {
     sottotitolo: 'Dati aziendali e preferenze del gestionale',
   })
 
-  const { db, aggiornaAzienda, ripristinaDemo } = useGestionale()
+  const { db, aggiornaAzienda, svuotaArchivio, caricaDatiDimostrativi } = useGestionale()
   const [form, setForm] = useState<Azienda>(db.azienda)
   const [salvato, setSalvato] = useState(false)
   const [errore, setErrore] = useState('')
-  const [confermaRipristino, setConfermaRipristino] = useState(false)
+  const [confermaSvuota, setConfermaSvuota] = useState(false)
+  const [confermaDemo, setConfermaDemo] = useState(false)
 
   // Dopo un ripristino demo o l'import di un backup il modulo deve ripartire
   // dai nuovi dati: altrimenti un salvataggio successivo li sovrascriverebbe.
@@ -184,17 +185,20 @@ export function Impostazioni() {
               sottotitolo="I dati sono salvati nel browser di questo dispositivo"
             />
             <p className="mt-3 text-sm text-ink-muted">
-              Il gestionale funziona senza server: ogni modifica resta nel browser corrente. Usa la
-              sezione Backup per esportare i dati prima di cambiare dispositivo.
+              L’archivio di questa postazione vive nel browser corrente. Usa la sezione Backup per
+              esportarlo prima di cambiare dispositivo. Una postazione nuova parte vuota: i dati di
+              esempio si caricano solo da qui, e servono a provare l’applicazione.
             </p>
-            <Button
-              variante="pericolo"
-              className="mt-4"
-              onClick={() => setConfermaRipristino(true)}
-            >
-              <RotateCcw size={15} />
-              Ripristina dati dimostrativi
-            </Button>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button variante="pericolo" onClick={() => setConfermaSvuota(true)}>
+                <Trash2 size={15} />
+                Svuota l’archivio
+              </Button>
+              <Button onClick={() => setConfermaDemo(true)}>
+                <FlaskConical size={15} />
+                Carica dati di esempio
+              </Button>
+            </div>
           </Card>
         </div>
       </div>
@@ -222,29 +226,60 @@ export function Impostazioni() {
       </div>
 
       <Modal
-        aperta={confermaRipristino}
-        titolo="Ripristinare i dati dimostrativi?"
-        onChiudi={() => setConfermaRipristino(false)}
+        aperta={confermaSvuota}
+        titolo="Svuotare l’archivio?"
+        onChiudi={() => setConfermaSvuota(false)}
         larghezza="sm"
         piede={
           <>
-            <Button onClick={() => setConfermaRipristino(false)}>Annulla</Button>
+            <Button onClick={() => setConfermaSvuota(false)}>Annulla</Button>
             <Button
               variante="pericolo"
               onClick={() => {
-                ripristinaDemo()
-                setConfermaRipristino(false)
+                svuotaArchivio()
+                setConfermaSvuota(false)
               }}
             >
-              <RotateCcw size={15} />
-              Ripristina
+              <Trash2 size={15} />
+              Svuota
             </Button>
           </>
         }
       >
         <p className="text-sm text-ink-muted">
-          Tutte le modifiche locali (clienti, riparazioni, magazzino) verranno sostituite dai dati di
-          esempio iniziali. L'operazione non è reversibile.
+          Clienti, riparazioni, documenti e magazzino di questo dispositivo vengono cancellati.
+          L’operazione non è reversibile: se ti serve una copia, esportala prima da Backup.
+        </p>
+        <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-[13px] text-ink-muted">
+          Se la postazione è collegata a un server, lo svuotamento verrà propagato anche alle
+          altre postazioni alla prossima sincronizzazione.
+        </p>
+      </Modal>
+
+      <Modal
+        aperta={confermaDemo}
+        titolo="Caricare i dati di esempio?"
+        onChiudi={() => setConfermaDemo(false)}
+        larghezza="sm"
+        piede={
+          <>
+            <Button onClick={() => setConfermaDemo(false)}>Annulla</Button>
+            <Button
+              variante="primario"
+              onClick={() => {
+                caricaDatiDimostrativi()
+                setConfermaDemo(false)
+              }}
+            >
+              <FlaskConical size={15} />
+              Carica
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-ink-muted">
+          Sostituisce l’archivio con clienti, riparazioni e documenti fittizi, utili per provare
+          l’applicazione. Non usarlo su una postazione con dati veri.
         </p>
       </Modal>
     </div>

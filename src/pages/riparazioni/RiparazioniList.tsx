@@ -375,8 +375,16 @@ export function RiparazioniList() {
 
         {elenco.totale === 0 ? (
           <StatoVuoto
-            titolo="Nessun dispositivo trovato"
-            descrizione="Modifica i filtri di ricerca oppure registra una nuova accettazione."
+            titolo={
+              db.riparazioni.length === 0
+                ? 'Nessuna riparazione registrata'
+                : 'Nessun dispositivo trovato'
+            }
+            descrizione={
+              db.riparazioni.length === 0
+                ? 'Accetta il primo dispositivo: il codice scheda viene assegnato in automatico.'
+                : 'Modifica i filtri di ricerca oppure registra una nuova accettazione.'
+            }
             azione={
               <LinkButton to="/riparazioni/nuova" variante="primario" dimensione="sm">
                 <Plus size={14} />

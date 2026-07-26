@@ -353,6 +353,42 @@ errore in console. La vista a schede su telefono è stata verificata sul CSS com
   magazzino, ordini, interventi e scheda cliente; sistemati l'ingombro delle
   scadenze e le briciole che finivano sotto le icone.
 
+## 10. Archivio vuoto alla prima apertura (26/07/2026)
+
+Il negozio apriva il gestionale e trovava 24 clienti e tre mesi di fatture che
+non erano suoi. Peggio: alla prima sincronizzazione quella finzione finiva sul
+server e si propagava alle altre postazioni.
+
+- `creaDatabaseIniziale()` restituisce ora un archivio **vuoto**, con i soli dati
+  aziendali. Il dataset dimostrativo vive in `creaDatabaseDimostrativo()` e si
+  carica solo da *Impostazioni → Archivio locale*, con conferma esplicita.
+- Accanto è comparso **Svuota l'archivio**, per ripulire una postazione: la
+  conferma avverte che, se c'è un server collegato, la cancellazione raggiunge
+  anche le altre postazioni.
+- Gli **stati vuoti distinguono** ora «non hai ancora nulla» da «i filtri non
+  trovano niente»: alla prima apertura ogni elenco spiega da dove si comincia
+  invece di suggerire di modificare una ricerca mai fatta.
+- Verificato: caricamento dei dati di esempio, svuotamento e ritorno agli stati
+  vuoti, a 390 pixel oltre che da scrivania.
+
+### Perché i dati di prova erano tornati sul server
+
+Svuotare non sarebbe bastato. La base di confronto della sincronizzazione era
+un riferimento in memoria: si azzerava a ogni ricaricamento della pagina, e la
+prima passata successiva rispediva al server **l'archivio intero**. Bastava
+quindi che una postazione con i dati dimostrativi aprisse l'applicazione perché
+tutto tornasse su, cancellazioni comprese.
+
+- Il confronto ora è sull'**impronta del contenuto** di ogni record
+  (`firmeArchivio` / `modificheDaFirme`), e la mappa delle impronte vive in
+  `localStorage` accanto al cursore: sopravvive alla chiusura della scheda.
+- Una postazione che si collega a un server con **sole lapidi** non ne adotta
+  più l'archivio vuoto: le cancellazioni le arrivano per la via normale, senza
+  buttare via ciò che ha in casa.
+- L'archivio sul server è stato ripulito trasformando i 350 record dimostrativi
+  in lapidi datate: così la cancellazione raggiunge anche le postazioni che
+  avevano ancora la vecchia copia, invece di lasciarle libere di rimandarla.
+
 ### Non ancora affrontato
 - Anagrafica fornitori strutturata (si è scelto l'elenco suggerito con normalizzazione).
 - FatturaPA / XML per lo SDI.

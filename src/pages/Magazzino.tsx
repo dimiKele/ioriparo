@@ -371,7 +371,14 @@ export function Magazzino() {
         </div>
 
         {elenco.totale === 0 ? (
-          <StatoVuoto titolo="Nessun articolo trovato" />
+          <StatoVuoto
+            titolo={db.magazzino.length === 0 ? 'Magazzino ancora vuoto' : 'Nessun articolo trovato'}
+            descrizione={
+              db.magazzino.length === 0
+                ? 'Inserisci i ricambi che tieni a scorta: giacenze e valore si aggiornano da soli.'
+                : undefined
+            }
+          />
         ) : (
           <>
             <Tabella larghezzaMinima="sm:min-w-[900px]">
