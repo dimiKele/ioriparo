@@ -28,6 +28,7 @@ import type {
   PrioritaScadenza,
   RigaIntervento,
   RigaOrdine,
+  RiferimentoAllegato,
   Riparazione,
   Scadenza,
   StatoFattura,
@@ -217,6 +218,26 @@ function storicoRiparazione(valore: unknown): EventoRiparazione[] | undefined {
     ]
   })
   return eventi.length > 0 ? eventi : undefined
+}
+
+function riferimentiAllegati(valore: unknown): RiferimentoAllegato[] | undefined {
+  const riferimenti = elenco(valore).flatMap<RiferimentoAllegato>((grezzo) => {
+    if (!eOggetto(grezzo)) return []
+    const id = testo(grezzo.id)
+    const tipo = grezzo.tipo === 'firma' ? 'firma' : 'foto'
+    if (!id) return []
+    return [
+      {
+        id,
+        tipo,
+        ordine: numeroFinito(grezzo.ordine) ?? 0,
+        // Senza impronta il riferimento è inservibile: si scarta, così
+        // l'immagine viene ricaricata e il collegamento ricostruito.
+        impronta: testo(grezzo.impronta) ?? '',
+      },
+    ]
+  })
+  return riferimenti.length > 0 ? riferimenti : undefined
 }
 
 function righeOrdine(valore: unknown): RigaOrdine[] {
@@ -428,6 +449,7 @@ export function validaArchivio(
             : undefined,
         noteInterne: testo(g.noteInterne),
         storico: storicoRiparazione(g.storico),
+        allegati: riferimentiAllegati(g.allegati),
       }
     },
   )

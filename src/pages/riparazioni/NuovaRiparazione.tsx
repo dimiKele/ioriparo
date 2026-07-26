@@ -30,6 +30,7 @@ export function riparazioneDaForm(dati: DatiForm, clienteId: string): Omit<Ripar
     acconto: Number.isFinite(acconto) && acconto > 0 ? acconto : undefined,
     foto: dati.foto.length ? dati.foto : undefined,
     firmaCliente: dati.firmaCliente,
+    allegati: dati.allegati.length ? dati.allegati : undefined,
     noteInterne: dati.noteInterne.trim() || undefined,
   }
 }

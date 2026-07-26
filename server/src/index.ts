@@ -9,6 +9,8 @@
 
 interface Env {
   DB: D1Database
+  /** Bucket delle immagini: i byte non stanno nel database. */
+  ALLEGATI: R2Bucket
   ORIGINI_AMMESSE: string
   /** Password condivisa del negozio, impostata con `wrangler secret put`. */
   PASSWORD_NEGOZIO?: string
@@ -43,16 +45,10 @@ interface RecordSincronizzato {
   aggiornatoIl?: number
 }
 
-interface AllegatoSincronizzato {
-  id: string
-  riparazioneId: string
-  tipo: 'foto' | 'firma'
-  ordine?: number
-  /** Presente solo in scrittura: in lettura si scarica a parte. */
-  dati?: string
-  eliminato?: boolean
-  aggiornatoIl?: number
-}
+/** Limite per singola immagine: le foto arrivano già compresse dal client. */
+const BYTE_MASSIMI_ALLEGATO = 3 * 1024 * 1024
+
+const TIPI_MIME_AMMESSI = ['image/jpeg', 'image/png', 'image/webp']
 
 // ------------------------------------------------------------------ utilità
 
@@ -121,7 +117,7 @@ function intestazioniCors(richiesta: Request, env: Env): Record<string, string> 
   if (!ammesse.includes(origine)) return {}
   return {
     'Access-Control-Allow-Origin': origine,
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
@@ -171,7 +167,7 @@ async function leggiCambiamenti(env: Env, da: number) {
       'SELECT collezione, id, dati, aggiornato_il, eliminato FROM record WHERE aggiornato_il > ? ORDER BY aggiornato_il',
     ).bind(da),
     env.DB.prepare(
-      'SELECT id, riparazione_id, tipo, ordine, aggiornato_il, eliminato FROM allegato WHERE aggiornato_il > ? ORDER BY aggiornato_il',
+      'SELECT id, riparazione_id, tipo, ordine, tipo_mime, byte, aggiornato_il, eliminato FROM allegato WHERE aggiornato_il > ? ORDER BY aggiornato_il',
     ).bind(da),
   ])
 
@@ -183,11 +179,15 @@ async function leggiCambiamenti(env: Env, da: number) {
       aggiornatoIl: riga.aggiornato_il as number,
       eliminato: riga.eliminato === 1,
     })),
+    // Degli allegati viaggiano solo i metadati: i byte si scaricano a parte,
+    // una volta sola, e restano nella cache del browser.
     allegati: (allegati.results as Array<Record<string, unknown>>).map((riga) => ({
       id: riga.id as string,
       riparazioneId: riga.riparazione_id as string,
       tipo: riga.tipo as 'foto' | 'firma',
       ordine: riga.ordine as number,
+      tipoMime: riga.tipo_mime as string,
+      byte: riga.byte as number,
       aggiornatoIl: riga.aggiornato_il as number,
       eliminato: riga.eliminato === 1,
     })),
@@ -208,43 +208,33 @@ async function sincronizza(richiesta: Request, env: Env, cors: Record<string, st
     da?: unknown
     origine?: unknown
     record?: unknown
-    allegati?: unknown
   } | null
 
   const da = typeof corpo?.da === 'number' && Number.isFinite(corpo.da) ? corpo.da : 0
   const origine = typeof corpo?.origine === 'string' ? corpo.origine.slice(0, 60) : null
   const inArrivo = Array.isArray(corpo?.record) ? (corpo.record as RecordSincronizzato[]) : []
-  const allegatiInArrivo = Array.isArray(corpo?.allegati)
-    ? (corpo.allegati as AllegatoSincronizzato[])
-    : []
 
   const adesso = Date.now()
   const rifiutati: Array<{ collezione: string; id: string }> = []
   const istruzioni: D1PreparedStatement[] = []
 
-  if (inArrivo.length > 0) {
-    // Si leggono in blocco le versioni attuali dei soli record toccati.
-    const chiavi = inArrivo.filter((r) => eCollezione(r.collezione) && typeof r.id === 'string')
-    const attuali = new Map<string, number>()
+  // I cambiamenti si leggono prima di scrivere: un record modificato dopo
+  // l'ultimo allineamento di questa postazione è esattamente un conflitto.
+  //
+  // Prima si interrogavano i soli record in arrivo con un `IN (VALUES …)`, ma
+  // D1 accetta al massimo 100 parametri per query: al primo allineamento, che
+  // invia l'archivio intero, la richiesta falliva senza spiegazioni. Filtrare
+  // per data usa un solo parametro e individua gli stessi conflitti.
+  const cambiamenti = await leggiCambiamenti(env, da)
+  const contesi = new Set(cambiamenti.record.map((voce) => `${voce.collezione} ${voce.id}`))
 
-    if (chiavi.length > 0) {
-      const segnaposti = chiavi.map(() => '(? , ?)').join(',')
-      const parametri = chiavi.flatMap((r) => [r.collezione, r.id])
-      const esito = await env.DB.prepare(
-        `SELECT collezione, id, aggiornato_il FROM record WHERE (collezione, id) IN (VALUES ${segnaposti})`,
-      )
-        .bind(...parametri)
-        .all()
-      for (const riga of esito.results as Array<Record<string, unknown>>) {
-        attuali.set(`${riga.collezione} ${riga.id}`, riga.aggiornato_il as number)
-      }
-    }
+  if (inArrivo.length > 0) {
+    const chiavi = inArrivo.filter((r) => eCollezione(r.collezione) && typeof r.id === 'string')
 
     for (const voce of chiavi) {
-      const attuale = attuali.get(`${voce.collezione} ${voce.id}`)
       // Il record è stato toccato da qualcun altro dopo l'ultimo allineamento
       // di questa postazione: la sua modifica non viene applicata.
-      if (attuale !== undefined && attuale > da) {
+      if (contesi.has(`${voce.collezione} ${voce.id}`)) {
         rifiutati.push({ collezione: voce.collezione, id: voce.id })
         continue
       }
@@ -269,47 +259,147 @@ async function sincronizza(richiesta: Request, env: Env, cors: Record<string, st
     }
   }
 
-  for (const allegato of allegatiInArrivo) {
-    if (typeof allegato.id !== 'string' || typeof allegato.riparazioneId !== 'string') continue
-    if (allegato.tipo !== 'foto' && allegato.tipo !== 'firma') continue
-    istruzioni.push(
-      env.DB.prepare(
-        `INSERT INTO allegato (id, riparazione_id, tipo, ordine, dati, aggiornato_il, eliminato)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT (id) DO UPDATE SET
-           ordine = excluded.ordine,
-           dati = excluded.dati,
-           aggiornato_il = excluded.aggiornato_il,
-           eliminato = excluded.eliminato`,
-      ).bind(
-        allegato.id,
-        allegato.riparazioneId,
-        allegato.tipo,
-        allegato.ordine ?? 0,
-        allegato.eliminato ? '' : (allegato.dati ?? ''),
-        adesso,
-        allegato.eliminato ? 1 : 0,
-      ),
-    )
-  }
-
   // D1 accetta al massimo 1000 istruzioni per lotto sul piano gratuito.
   const DIMENSIONE_LOTTO = 500
   for (let i = 0; i < istruzioni.length; i += DIMENSIONE_LOTTO) {
     await env.DB.batch(istruzioni.slice(i, i + DIMENSIONE_LOTTO))
   }
 
-  const cambiamenti = await leggiCambiamenti(env, da)
+  // I cambiamenti sono già stati letti prima delle scritture: contengono ciò
+  // che serve alla postazione, comprese le versioni dei record contesi.
   return risposta({ istante: adesso, rifiutati, ...cambiamenti }, 200, cors)
 }
 
+/** Chiave dell'oggetto nel bucket, raggruppata per scheda. */
+function chiaveAllegato(riparazioneId: string, id: string): string {
+  return `riparazioni/${riparazioneId}/${id}`
+}
+
+/**
+ * Carica un'immagine. Il corpo della richiesta è l'immagine grezza: viene
+ * scritta in R2 e in D1 resta solo la riga di indice.
+ */
+async function caricaAllegato(
+  richiesta: Request,
+  env: Env,
+  id: string,
+  cors: Record<string, string>,
+) {
+  const url = new URL(richiesta.url)
+  const riparazioneId = url.searchParams.get('riparazione') ?? ''
+  const tipo = url.searchParams.get('tipo') ?? ''
+  const ordine = Number(url.searchParams.get('ordine') ?? '0')
+  const tipoMime = (richiesta.headers.get('Content-Type') ?? 'image/jpeg').split(';')[0].trim()
+
+  if (!riparazioneId) return risposta({ errore: 'Scheda non indicata.' }, 400, cors)
+  if (tipo !== 'foto' && tipo !== 'firma') return risposta({ errore: 'Tipo non valido.' }, 400, cors)
+  if (!TIPI_MIME_AMMESSI.includes(tipoMime)) {
+    return risposta({ errore: `Formato immagine non ammesso: ${tipoMime}.` }, 415, cors)
+  }
+
+  const dichiarati = Number(richiesta.headers.get('Content-Length') ?? '0')
+  if (dichiarati > BYTE_MASSIMI_ALLEGATO) {
+    return risposta({ errore: 'Immagine troppo grande.' }, 413, cors)
+  }
+
+  const byte = await richiesta.arrayBuffer()
+  if (byte.byteLength === 0) return risposta({ errore: 'Immagine vuota.' }, 400, cors)
+  if (byte.byteLength > BYTE_MASSIMI_ALLEGATO) {
+    return risposta({ errore: 'Immagine troppo grande.' }, 413, cors)
+  }
+
+  const chiave = chiaveAllegato(riparazioneId, id)
+  await env.ALLEGATI.put(chiave, byte, { httpMetadata: { contentType: tipoMime } })
+
+  const adesso = Date.now()
+  await env.DB.prepare(
+    `INSERT INTO allegato (id, riparazione_id, tipo, ordine, chiave, tipo_mime, byte, aggiornato_il, eliminato)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+     ON CONFLICT (id) DO UPDATE SET
+       ordine = excluded.ordine,
+       chiave = excluded.chiave,
+       tipo_mime = excluded.tipo_mime,
+       byte = excluded.byte,
+       aggiornato_il = excluded.aggiornato_il,
+       eliminato = 0`,
+  )
+    .bind(id, riparazioneId, tipo, ordine, chiave, tipoMime, byte.byteLength, adesso)
+    .run()
+
+  return risposta({ id, byte: byte.byteLength, aggiornatoIl: adesso }, 200, cors)
+}
+
+/**
+ * Restituisce l'immagine come tale, non incapsulata in JSON: il browser la
+ * tratta come una normale risorsa e la mette in cache.
+ */
 async function scaricaAllegato(env: Env, id: string, cors: Record<string, string>) {
-  const riga = await env.DB.prepare('SELECT dati, eliminato FROM allegato WHERE id = ?')
+  const riga = await env.DB.prepare(
+    'SELECT chiave, tipo_mime, eliminato FROM allegato WHERE id = ?',
+  )
     .bind(id)
-    .first<{ dati: string; eliminato: number }>()
+    .first<{ chiave: string; tipo_mime: string; eliminato: number }>()
 
   if (!riga || riga.eliminato === 1) return risposta({ errore: 'Allegato non trovato.' }, 404, cors)
-  return risposta({ id, dati: riga.dati }, 200, cors)
+
+  const oggetto = await env.ALLEGATI.get(riga.chiave)
+  if (!oggetto) return risposta({ errore: 'Immagine non più presente nel bucket.' }, 404, cors)
+
+  const intestazioni = new Headers(cors)
+  oggetto.writeHttpMetadata(intestazioni)
+  intestazioni.set('Content-Type', riga.tipo_mime)
+  intestazioni.set('ETag', oggetto.httpEtag)
+  // Gli allegati non cambiano mai contenuto: un id nuovo è un'immagine nuova.
+  intestazioni.set('Cache-Control', 'private, max-age=31536000, immutable')
+
+  return new Response(oggetto.body, { headers: intestazioni })
+}
+
+/** Rimuove l'immagine dal bucket e lascia la lapide nell'indice. */
+async function eliminaAllegato(env: Env, id: string, cors: Record<string, string>) {
+  const riga = await env.DB.prepare('SELECT chiave FROM allegato WHERE id = ?')
+    .bind(id)
+    .first<{ chiave: string }>()
+
+  if (riga) await env.ALLEGATI.delete(riga.chiave)
+  await env.DB.prepare('UPDATE allegato SET eliminato = 1, aggiornato_il = ? WHERE id = ?')
+    .bind(Date.now(), id)
+    .run()
+
+  return risposta({ id, eliminato: true }, 200, cors)
+}
+
+/**
+ * Rimuove dal bucket le immagini che nessuna scheda rivendica più.
+ *
+ * Un caricamento interrotto a metà, o una postazione che sparisce fra la
+ * scrittura dell'oggetto e quella dell'indice, lasciano byte che nessuno
+ * cancellerà mai. Questo passaggio li ritrova confrontando il bucket con
+ * l'indice e libera lo spazio.
+ */
+async function ripuliscOrfani(env: Env, cors: Record<string, string>) {
+  const indice = await env.DB.prepare('SELECT chiave FROM allegato WHERE eliminato = 0').all()
+  const vive = new Set((indice.results as Array<{ chiave: string }>).map((riga) => riga.chiave))
+
+  let cursore: string | undefined
+  let esaminati = 0
+  const rimossi: string[] = []
+
+  do {
+    const elenco = await env.ALLEGATI.list({ limit: 1000, cursor: cursore })
+    for (const oggetto of elenco.objects) {
+      esaminati += 1
+      if (!vive.has(oggetto.key)) rimossi.push(oggetto.key)
+    }
+    cursore = elenco.truncated ? elenco.cursor : undefined
+  } while (cursore)
+
+  // `delete` accetta al massimo 1000 chiavi per chiamata.
+  for (let i = 0; i < rimossi.length; i += 1000) {
+    await env.ALLEGATI.delete(rimossi.slice(i, i + 1000))
+  }
+
+  return risposta({ esaminati, rimossi: rimossi.length }, 200, cors)
 }
 
 // ------------------------------------------------------------------- fetch
@@ -355,9 +445,15 @@ export default {
       return risposta({ istante: Date.now(), rifiutati: [], ...cambiamenti }, 200, cors)
     }
 
+    if (url.pathname === '/api/manutenzione/allegati-orfani' && richiesta.method === 'POST') {
+      return ripuliscOrfani(env, cors)
+    }
+
     const allegato = url.pathname.match(/^\/api\/allegati\/([\w-]+)$/)
-    if (allegato && richiesta.method === 'GET') {
-      return scaricaAllegato(env, allegato[1], cors)
+    if (allegato) {
+      if (richiesta.method === 'GET') return scaricaAllegato(env, allegato[1], cors)
+      if (richiesta.method === 'PUT') return caricaAllegato(richiesta, env, allegato[1], cors)
+      if (richiesta.method === 'DELETE') return eliminaAllegato(env, allegato[1], cors)
     }
 
     return risposta({ errore: 'Risorsa non trovata.' }, 404, cors)

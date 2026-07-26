@@ -38,9 +38,22 @@ export interface RecordRemoto {
   eliminato: boolean
 }
 
+/** Metadati di un'immagine conservata nel bucket: i byte si scaricano a parte. */
+export interface MetadatoAllegato {
+  id: string
+  riparazioneId: string
+  tipo: 'foto' | 'firma'
+  ordine: number
+  tipoMime: string
+  byte: number
+  aggiornatoIl: number
+  eliminato: boolean
+}
+
 export interface EsitoSincronizzazione {
   istante: number
   record: RecordRemoto[]
+  allegati: MetadatoAllegato[]
   rifiutati: Array<{ collezione: string; id: string }>
 }
 
@@ -153,12 +166,11 @@ export async function accedi(indirizzo: string, password: string): Promise<Confi
 }
 
 /**
- * Foto e firme restano sulla postazione che le ha acquisite.
+ * Rimuove le immagini dal record prima di inviarlo.
  *
- * Un record di D1 non può superare 1 MB e una scheda con qualche foto lo
- * supera: gli allegati hanno una tabella dedicata sul server, ma finché il
- * trasferimento non è implementato è preferibile non inviarli affatto,
- * piuttosto che veder fallire la sincronizzazione dell'intera scheda.
+ * I byte vivono nel bucket R2 e viaggiano per conto proprio: nel record resta
+ * il solo elenco dei riferimenti, che è leggero e dice a ogni postazione quali
+ * immagini deve ancora scaricare.
  */
 export function senzaAllegati(voce: { id: string }): { id: string } {
   if (!('foto' in voce) && !('firmaCliente' in voce)) return voce
@@ -317,6 +329,7 @@ export async function sincronizza(
   return {
     istante: esito.istante,
     record: Array.isArray(esito.record) ? esito.record : [],
+    allegati: Array.isArray(esito.allegati) ? esito.allegati : [],
     rifiutati: Array.isArray(esito.rifiutati) ? esito.rifiutati : [],
   }
 }

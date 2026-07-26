@@ -29,6 +29,7 @@ import { SignaturePad } from '@/components/ui/SignaturePad'
 import { useGestionale } from '@/data/store'
 import { linkWhatsApp, oggiISO } from '@/lib/format'
 import { comprimiImmagine, formatPeso, pesoDataUrl } from '@/lib/immagini'
+import { impronta } from '@/lib/allegati'
 import {
   MARCHE_PER_TIPO,
   ORDINE_STATI,
@@ -38,6 +39,7 @@ import {
 import type {
   CondizioneEsterna,
   Cliente,
+  RiferimentoAllegato,
   Riparazione,
   StatoRiparazione,
   TipoDispositivo,
@@ -70,6 +72,8 @@ export interface DatiForm {
   accessori: Riparazione['accessori']
   foto: string[]
   firmaCliente?: string
+  /** Riferimenti alle immagini già caricate sul server. */
+  allegati: RiferimentoAllegato[]
 
   stato: StatoRiparazione
   dataAccettazione: string
@@ -106,6 +110,7 @@ export function datiVuoti(): DatiForm {
     noteCondizioni: '',
     accessori: { scatola: false, cover: false, caricabatterie: false, cavoUsb: false, altro: '', note: '' },
     foto: [],
+    allegati: [],
     stato: 'in_attesa',
     dataAccettazione: oggiISO(),
     consegnaPrevista: '',
@@ -137,6 +142,7 @@ export function datiDaRiparazione(riparazione: Riparazione, cliente?: Cliente): 
     accessori: { altro: '', note: '', ...riparazione.accessori },
     foto: riparazione.foto ?? [],
     firmaCliente: riparazione.firmaCliente,
+    allegati: riparazione.allegati ?? [],
     stato: riparazione.stato,
     dataAccettazione: riparazione.dataAccettazione,
     consegnaPrevista: riparazione.consegnaPrevista ?? '',
@@ -188,6 +194,25 @@ export function FormRiparazione({
     if (errori[campo as string]) {
       setErrori(({ [campo as string]: _rimosso, ...resto }) => resto)
     }
+  }
+
+  /**
+   * Toglie la foto e con essa il riferimento all'immagine sul server.
+   *
+   * È l'unico punto in cui si sa che l'operatore vuole davvero eliminarla:
+   * altrove un riferimento senza immagine locale può semplicemente voler dire
+   * che questa postazione non l'ha ancora scaricata.
+   */
+  function rimuoviFoto(indice: number) {
+    const daTogliere = dati.foto[indice]
+    setDati((precedenti) => ({
+      ...precedenti,
+      foto: precedenti.foto.filter((_, i) => i !== indice),
+      allegati: precedenti.allegati.filter(
+        (voce) => !(voce.tipo === 'foto' && voce.impronta === impronta(daTogliere)),
+      ),
+    }))
+    setModificato(true)
   }
 
   function annulla() {
@@ -608,12 +633,7 @@ export function FormRiparazione({
                   />
                   <button
                     type="button"
-                    onClick={() =>
-                      aggiorna(
-                        'foto',
-                        dati.foto.filter((_, i) => i !== indice),
-                      )
-                    }
+                    onClick={() => rimuoviFoto(indice)}
                     aria-label={`Rimuovi foto ${indice + 1}`}
                     className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full bg-rose-600 text-white"
                   >
@@ -731,7 +751,15 @@ export function FormRiparazione({
             {modoFirma === 'schermo' ? (
               <SignaturePad
                 valore={dati.firmaCliente}
-                onChange={(firma) => aggiorna('firmaCliente', firma)}
+                onChange={(firma) => {
+                  // Rifirmando si scarta il riferimento alla firma precedente.
+                  setDati((precedenti) => ({
+                    ...precedenti,
+                    firmaCliente: firma,
+                    allegati: precedenti.allegati.filter((voce) => voce.tipo !== 'firma'),
+                  }))
+                  setModificato(true)
+                }}
               />
             ) : (
               <div className="space-y-3">

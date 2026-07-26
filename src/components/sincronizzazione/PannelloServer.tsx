@@ -138,8 +138,9 @@ export function PannelloServer() {
       {messaggio && <p className="mt-2 text-[13px] text-amber-300">{messaggio}</p>}
 
       <p className="mt-4 rounded-lg border border-line bg-surface-2 p-3 text-[12px] text-ink-muted">
-        Foto e firme restano sulla postazione che le ha acquisite: non vengono ancora trasferite
-        al server. Tutto il resto dell’archivio viene condiviso.
+        Foto e firme vengono trasferite in un archivio separato e scaricate su ogni postazione la
+        prima volta che servono. Il trasferimento avviene in secondo piano: se la rete è lenta i
+        dati si allineano comunque subito e le immagini seguono.
       </p>
     </Card>
   )

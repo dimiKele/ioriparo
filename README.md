@@ -120,7 +120,7 @@ Come funziona la sincronizzazione:
 - Le eliminazioni lasciano una lapide, altrimenti un record cancellato
   tornerebbe indietro dalla postazione che era offline.
 - **Foto e firme non vengono ancora trasferite** e restano sul dispositivo che
-  le ha acquisite: un record D1 non può superare 1 MB. La tabella `allegato`
+  le ha acquisite: un record D1 non può superare 2 MB. La tabella `allegato`
   è già predisposta per il passo successivo.
 
 ## Compilazione e pubblicazione

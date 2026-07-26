@@ -21,8 +21,9 @@ import {
   sincronizza as inviaSincronizzazione,
   verificaServer,
   type ConfigurazioneServer,
-  type RecordRemoto,
+  type MetadatoAllegato,
 } from '@/lib/sincronizzazione'
+import { allineaAllegati } from '@/lib/allegati'
 import type { DatabaseGestionale } from '@/types'
 
 /** Ogni quanto riallinearsi quando l'operatore non fa nulla. */
@@ -38,7 +39,6 @@ export type StatoSincronizzazione =
   | 'in_corso'
   | 'allineato'
   | 'offline'
-  | 'errore'
 
 interface ContestoSincronizzazione {
   stato: StatoSincronizzazione
@@ -79,29 +79,26 @@ function nomePostazione(): string {
 export function SincronizzazioneProvider({ children }: { children: ReactNode }) {
   const { db, importaDatabase } = useGestionale()
 
-  const [configurazione, setConfigurazione] = useState<ConfigurazioneServer | null>(
-    () => leggiConfigurazione(),
+  const [configurazione, setConfigurazione] = useState<ConfigurazioneServer | null>(() =>
+    leggiConfigurazione(),
   )
   const [stato, setStato] = useState<StatoSincronizzazione>('non_configurato')
   const [messaggio, setMessaggio] = useState('')
   const [conflitti, setConflitti] = useState(0)
+  const [daInviare, setDaInviare] = useState(0)
   const [ultimoAllineamento, setUltimoAllineamento] = useState<number | null>(null)
 
-  /** Archivio com'era all'ultimo allineamento riuscito: base del confronto. */
+  /**
+   * Archivio com'era all'ultimo allineamento riuscito: è la base del
+   * confronto, e resta indietro rispetto a `db` esattamente di ciò che
+   * dev'essere ancora inviato.
+   */
   const allineato = useRef<DatabaseGestionale | null>(null)
-  /** Vero mentre si applicano i record del server, per non rispedirli subito. */
-  const inApplicazione = useRef(false)
   const inCorso = useRef(false)
   const dbRef = useRef(db)
   dbRef.current = db
 
   const collegato = sessioneAttiva(configurazione)
-
-  const daInviare = useMemo(() => {
-    if (!collegato) return 0
-    if (!allineato.current) return scomponi(db).length
-    return calcolaModifiche(allineato.current, db).length
-  }, [db, collegato])
 
   const aggiornaConfigurazione = useCallback((nuova: ConfigurazioneServer | null) => {
     setConfigurazione(nuova)
@@ -116,9 +113,11 @@ export function SincronizzazioneProvider({ children }: { children: ReactNode }) 
     setStato('in_corso')
 
     try {
+      // `partenza` è la fotografia su cui si calcola l'invio. Durante la
+      // richiesta l'operatore può continuare a lavorare: quelle modifiche non
+      // devono finire nella base, così la passata successiva le riconosce.
       const partenza = dbRef.current
       const cursore = leggiCursore()
-      // Al primo allineamento si invia tutto: il server potrebbe essere vuoto.
       const modifiche = allineato.current
         ? calcolaModifiche(allineato.current, partenza)
         : scomponi(partenza)
@@ -130,30 +129,15 @@ export function SincronizzazioneProvider({ children }: { children: ReactNode }) 
         origine: nomePostazione(),
       })
 
-      // I record accettati non vanno più rispediti; quelli rifiutati restano
-      // fuori dalla base, così la prossima passata li riproporrà.
-      const rifiutati = new Set(esito.rifiutati.map((v) => `${v.collezione} ${v.id}`))
-      const daAdottare: RecordRemoto[] = esito.record
-      const nuovoDb = applica(partenza, daAdottare)
+      // Si applica all'archivio corrente, non alla fotografia: altrimenti si
+      // cancellerebbe ciò che è stato scritto durante la richiesta.
+      const corrente = dbRef.current
+      const conRemoti = applica(corrente, esito.record)
+      if (conRemoti !== corrente) importaDatabase(conRemoti)
 
-      inApplicazione.current = true
-      if (nuovoDb !== partenza) importaDatabase(nuovoDb)
-
-      const base = applica(partenza, daAdottare)
-      // La base del confronto include le modifiche accettate dal server.
-      allineato.current = {
-        ...base,
-        ...Object.fromEntries(
-          (['clienti', 'riparazioni', 'preventivi', 'fatture', 'magazzino', 'ordini', 'scadenze', 'impianti', 'movimenti'] as const).map(
-            (collezione) => [
-              collezione,
-              (base[collezione] as Array<{ id: string }>).filter(
-                (voce) => !rifiutati.has(`${collezione} ${voce.id}`),
-              ),
-            ],
-          ),
-        ),
-      } as DatabaseGestionale
+      // La base include i record accettati dal server e quelli adottati; i
+      // rifiutati sono già stati rimandati dal server, quindi vi rientrano.
+      allineato.current = applica(partenza, esito.record)
 
       scriviCursore(esito.istante)
       setUltimoAllineamento(esito.istante)
@@ -164,6 +148,20 @@ export function SincronizzazioneProvider({ children }: { children: ReactNode }) 
           : '',
       )
       setStato('allineato')
+
+      // Le immagini viaggiano a parte, in secondo piano: non devono far
+      // aspettare l'allineamento dei dati.
+      void allineaAllegati({
+        configurazione: attuale,
+        riparazioni: conRemoti.riparazioni,
+        metadati: esito.allegati as MetadatoAllegato[],
+        aggiorna: (id, modifiche) => {
+          const aggiornate = dbRef.current.riparazioni.map((riparazione) =>
+            riparazione.id === id ? { ...riparazione, ...modifiche } : riparazione,
+          )
+          importaDatabase({ ...dbRef.current, riparazioni: aggiornate })
+        },
+      })
     } catch (errore) {
       if (errore instanceof ErroreServer && errore.nonAutorizzato) {
         aggiornaConfigurazione({ ...attuale, token: undefined, scadenzaToken: undefined })
@@ -171,17 +169,10 @@ export function SincronizzazioneProvider({ children }: { children: ReactNode }) 
         setMessaggio('Sessione scaduta: inserisci di nuovo la password del negozio.')
       } else {
         setStato('offline')
-        setMessaggio(
-          errore instanceof Error ? errore.message : 'Sincronizzazione non riuscita.',
-        )
+        setMessaggio(errore instanceof Error ? errore.message : 'Sincronizzazione non riuscita.')
       }
     } finally {
       inCorso.current = false
-      // Il rilascio avviene dopo il commit di React, così le modifiche appena
-      // applicate non vengono scambiate per lavoro locale da rispedire.
-      setTimeout(() => {
-        inApplicazione.current = false
-      }, 0)
     }
   }, [configurazione, importaDatabase, aggiornaConfigurazione])
 
@@ -189,6 +180,7 @@ export function SincronizzazioneProvider({ children }: { children: ReactNode }) 
   useEffect(() => {
     if (!collegato) {
       setStato(configurazione ? 'disconnesso' : 'non_configurato')
+      setDaInviare(0)
       return
     }
     void allinea()
@@ -196,13 +188,17 @@ export function SincronizzazioneProvider({ children }: { children: ReactNode }) 
     return () => window.clearInterval(timer)
   }, [collegato, configurazione, allinea])
 
-  // Invio ravvicinato dopo una modifica locale, così il collega la vede subito.
+  // Conteggio di ciò che resta da inviare e invio ravvicinato dopo una
+  // modifica locale, così il collega la vede subito.
   useEffect(() => {
-    if (!collegato || inApplicazione.current || !allineato.current) return
-    if (calcolaModifiche(allineato.current, db).length === 0) return
+    if (!collegato) return
+    const inSospeso = allineato.current ? calcolaModifiche(allineato.current, db).length : 0
+    setDaInviare(inSospeso)
+    if (inSospeso === 0) return
+
     const timer = window.setTimeout(() => void allinea(), RITARDO_MODIFICHE_MS)
     return () => window.clearTimeout(timer)
-  }, [db, collegato, allinea])
+  }, [db, collegato, allinea, ultimoAllineamento])
 
   const valore = useMemo<ContestoSincronizzazione>(
     () => ({
@@ -231,6 +227,7 @@ export function SincronizzazioneProvider({ children }: { children: ReactNode }) 
         setStato('non_configurato')
         setMessaggio('')
         setConflitti(0)
+        setDaInviare(0)
       },
       allineaAdesso: allinea,
     }),

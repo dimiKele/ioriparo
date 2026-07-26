@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS record (
 CREATE INDEX IF NOT EXISTS idx_record_aggiornato ON record (aggiornato_il);
 
 -- Foto e firme stanno a parte: dentro il record supererebbero il limite di
--- 1 MB per riga di D1, e non vanno riscaricate a ogni sincronizzazione.
+-- 2 MB per riga di D1, e non vanno riscaricate a ogni sincronizzazione.
 CREATE TABLE IF NOT EXISTS allegato (
   id TEXT PRIMARY KEY,
   riparazione_id TEXT NOT NULL,

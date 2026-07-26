@@ -88,6 +88,26 @@ export interface Riparazione {
   noteInterne?: string
   /** Cronologia dei passaggi di stato, dalla più vecchia. */
   storico?: EventoRiparazione[]
+  /**
+   * Immagini già caricate sul server, con l'identificativo dell'oggetto.
+   * Serve a sapere che cosa è già salito e che cosa manca a questa postazione.
+   */
+  allegati?: RiferimentoAllegato[]
+}
+
+/** Collegamento fra una scheda e un'immagine conservata nel bucket. */
+export interface RiferimentoAllegato {
+  id: string
+  tipo: 'foto' | 'firma'
+  ordine: number
+  /**
+   * Impronta del contenuto dell'immagine.
+   *
+   * Serve a riconoscere che cosa è già stato caricato: l'immagine resta in
+   * locale come data URL anche dopo l'invio (è la cache), quindi la sua forma
+   * non dice nulla. Senza impronta ogni allineamento la ricaricherebbe.
+   */
+  impronta: string
 }
 
 export type StatoPreventivo = 'bozza' | 'inviato' | 'accettato' | 'rifiutato' | 'scaduto'

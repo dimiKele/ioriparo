@@ -12,6 +12,13 @@
       "migrations_dir": "migrations"
     }
   ],
+  "r2_buckets": [
+    {
+      // Foto e firme: byte grezzi, fuori dal database.
+      "binding": "ALLEGATI",
+      "bucket_name": "ioriparo-allegati"
+    }
+  ],
   "vars": {
     // Origini autorizzate a chiamare l'API, separate da virgola.
     // In sviluppo il frontend gira su Vite; in produzione va indicato il
