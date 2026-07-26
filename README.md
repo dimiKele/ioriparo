@@ -108,6 +108,21 @@ Poi in *Impostazioni → Server del negozio* si indica l'indirizzo del Worker e
 si inserisce la password. Va aggiunta l'origine da cui è servito il gestionale
 alla variabile `ORIGINI_AMMESSE` in `server/wrangler.jsonc`.
 
+Dove finiscono i dati:
+
+| Cosa | Dove | Perché |
+| --- | --- | --- |
+| Record dell'archivio | D1, un documento JSON per riga | I modelli vivono nel frontend; al server basta sapere che cosa è cambiato |
+| Foto e firme | Bucket R2 | Sono byte: in D1 costerebbero cinquanta volte tanto e riempirebbero lo spazio dei dati di lavoro |
+
+Manutenzione dello spazio: un caricamento interrotto può lasciare nel bucket
+immagini che nessuna scheda rivendica. Per liberarle:
+
+```bash
+curl -X POST https://<il-tuo-worker>/api/manutenzione/allegati-orfani \
+  -H "Authorization: Bearer <token di sessione>"
+```
+
 Come funziona la sincronizzazione:
 
 - L'archivio locale resta quello su cui l'applicazione lavora: una caduta di
@@ -119,9 +134,14 @@ Come funziona la sincronizzazione:
   postazione adotta la versione remota segnalandolo.
 - Le eliminazioni lasciano una lapide, altrimenti un record cancellato
   tornerebbe indietro dalla postazione che era offline.
-- **Foto e firme non vengono ancora trasferite** e restano sul dispositivo che
-  le ha acquisite: un record D1 non può superare 2 MB. La tabella `allegato`
-  è già predisposta per il passo successivo.
+- **Foto e firme viaggiano a parte**, verso il bucket, e vengono scaricate da
+  ogni postazione la prima volta che servono. Nel record resta solo l'elenco
+  dei riferimenti, con l'impronta del contenuto che dice se l'immagine è già
+  stata caricata.
+- Un'immagine viene **rimossa dal server solo dal modulo di accettazione**,
+  dove l'intenzione dell'operatore è certa: altrove «non ho questa foto» e «è
+  stata cancellata» sono indistinguibili, e sbagliare significherebbe
+  distruggere le foto di un collega.
 
 ## Compilazione e pubblicazione
 

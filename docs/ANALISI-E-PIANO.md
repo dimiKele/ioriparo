@@ -333,9 +333,29 @@ errore in console. La vista a schede su telefono è stata verificata sul CSS com
 - **Vista a schede su schermo stretto** verificata a 390px su riparazioni,
   clienti e fatture.
 
+## 9. Backend in esercizio e allegati su R2 (26/07/2026)
+
+- **Worker pubblicato** su `ioriparo-api.dimichele-lu.workers.dev`, con database
+  D1 `ioriparo-db` e bucket R2 `ioriparo-allegati`. I segreti sono impostati e
+  documentati fuori dal repository.
+- **Allegati spostati da D1 a R2.** Conservare immagini in un database era la
+  scelta sbagliata: 0,75 $ per GB al mese contro 0,015 $, base64 che gonfia i
+  byte di un terzo, 2 MB per riga e un tetto di 10 GB che, una volta raggiunto,
+  bloccherebbe l'intero archivio e non solo la galleria.
+- **Difetti trovati provando contro il server reale**, non a tavolino:
+  il primo allineamento falliva sempre (D1 accetta 100 parametri per query e
+  l'invio iniziale ne portava molti di più); le modifiche fatte durante una
+  sincronizzazione andavano perse; le immagini si ricaricavano a ogni giro; una
+  postazione che non aveva ancora scaricato le foto le cancellava dal server;
+  modificare una scheda azzerava i riferimenti alle immagini.
+- **Interfaccia verificata a 390 pixel** su tutte le pagine, i moduli e
+  l'anteprima di stampa: aggiunte le etichette mancanti nelle schede di
+  magazzino, ordini, interventi e scheda cliente; sistemati l'ingombro delle
+  scadenze e le briciole che finivano sotto le icone.
+
 ### Non ancora affrontato
-- Trasferimento di foto e firme al server (tabella `allegato` già predisposta):
-  oggi restano sulla postazione che le ha acquisite.
 - Anagrafica fornitori strutturata (si è scelto l'elenco suggerito con normalizzazione).
 - FatturaPA / XML per lo SDI.
 - Test di integrazione sull'interfaccia (la suite copre la logica, non i componenti).
+- Pulizia automatica degli allegati orfani: oggi l'endpoint di manutenzione va
+  chiamato a mano.
