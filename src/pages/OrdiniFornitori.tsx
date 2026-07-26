@@ -419,17 +419,27 @@ export function OrdiniFornitori() {
               <tbody>
                 {elenco.visibili.map((ordine) => (
                   <Tr key={ordine.id} onClick={() => setDettaglio(ordine)}>
-                    <Td className="font-medium whitespace-nowrap text-ink">{ordine.numero}</Td>
-                    <Td className="text-[13px]">{ordine.fornitore}</Td>
-                    <Td className="whitespace-nowrap">{formatData(ordine.data)}</Td>
-                    <Td className="whitespace-nowrap">{formatData(ordine.consegnaPrevista)}</Td>
-                    <Td allineamento="center">{ordine.righe.length}</Td>
-                    <Td>
+                    <Td etichetta="Numero" className="font-medium whitespace-nowrap text-ink">
+                      {ordine.numero}
+                    </Td>
+                    <Td etichetta="Fornitore" className="text-[13px]">
+                      {ordine.fornitore}
+                    </Td>
+                    <Td etichetta="Data" className="whitespace-nowrap">
+                      {formatData(ordine.data)}
+                    </Td>
+                    <Td etichetta="Consegna prevista" className="whitespace-nowrap">
+                      {formatData(ordine.consegnaPrevista)}
+                    </Td>
+                    <Td etichetta="Righe" allineamento="center">
+                      {ordine.righe.length}
+                    </Td>
+                    <Td etichetta="Stato">
                       <Badge className={STATI_ORDINE[ordine.stato].badge}>
                         {STATI_ORDINE[ordine.stato].label}
                       </Badge>
                     </Td>
-                    <Td allineamento="right" className="font-semibold text-ink">
+                    <Td etichetta="Totale" allineamento="right" className="font-semibold text-ink">
                       {formatEuro(totaleRighe(ordine.righe))}
                     </Td>
                   </Tr>

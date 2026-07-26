@@ -349,7 +349,9 @@ function VoceScadenza({
     !scadenza.completata && (scadenza.priorita === 'urgente' || (giorni >= 0 && giorni <= 2))
 
   return (
-    <li className="flex items-start gap-3 px-5 py-4">
+    // Su schermo stretto badge e comandi scendono sotto il testo: affiancati
+    // lascerebbero al titolo una colonna di poche decine di pixel.
+    <li className="flex flex-wrap items-start gap-3 px-5 py-4">
       <span className="pt-0.5">
         <Checkbox
           etichetta=""
@@ -366,7 +368,7 @@ function VoceScadenza({
         <CalendarClock size={16} />
       </span>
 
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 basis-40">
         <p
           className={cn(
             'text-sm font-semibold',
@@ -376,7 +378,9 @@ function VoceScadenza({
           {scadenza.titolo}
         </p>
         {scadenza.descrizione && (
-          <p className="truncate text-xs text-ink-muted">{scadenza.descrizione}</p>
+          <p className="text-xs text-ink-muted max-sm:break-words sm:truncate">
+            {scadenza.descrizione}
+          </p>
         )}
         <p className="mt-0.5 text-[11px] text-ink-faint">
           {tipo.label} · Scade il {formatData(scadenza.data)}
@@ -384,9 +388,9 @@ function VoceScadenza({
         </p>
       </div>
 
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2 max-sm:w-full max-sm:justify-end">
         {scadenza.importo !== undefined && (
-          <span className="hidden text-sm font-semibold text-ink sm:block">
+          <span className="text-sm font-semibold text-ink">
             {formatEuro(scadenza.importo)}
           </span>
         )}

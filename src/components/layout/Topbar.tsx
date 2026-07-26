@@ -108,9 +108,14 @@ export function Topbar({ onApriMenu }: { onApriMenu: () => void }) {
           {intestazione.titolo}
         </h1>
         {intestazione.briciole ? (
-          <nav aria-label="Percorso" className="flex items-center gap-1 text-[11px] text-ink-faint">
+          // Su schermo stretto le briciole restano su una riga sola e vengono
+          // tagliate: andando a capo scavalcherebbero le icone della barra.
+          <nav
+            aria-label="Percorso"
+            className="flex items-center gap-1 overflow-hidden text-[11px] whitespace-nowrap text-ink-faint"
+          >
             {intestazione.briciole.map((voce, indice) => (
-              <span key={`${voce.label}-${indice}`} className="flex items-center gap-1">
+              <span key={`${voce.label}-${indice}`} className="flex shrink-0 items-center gap-1">
                 {indice > 0 && <ChevronRight size={11} />}
                 {voce.to ? (
                   <Link to={voce.to} className="transition-colors hover:text-ink-muted">

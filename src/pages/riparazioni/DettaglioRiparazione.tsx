@@ -445,10 +445,16 @@ export function DettaglioRiparazione() {
                 <tbody>
                   {riparazione.interventi.map((riga) => (
                     <Tr key={riga.id}>
-                      <Td className="text-[13px] text-ink">{riga.descrizione}</Td>
-                      <Td allineamento="center">{riga.quantita}</Td>
-                      <Td allineamento="right">{formatEuro(riga.prezzoUnitario)}</Td>
-                      <Td allineamento="right" className="font-semibold text-ink">
+                      <Td etichetta="Descrizione" className="text-[13px] text-ink">
+                        {riga.descrizione}
+                      </Td>
+                      <Td etichetta="Q.tà" allineamento="center">
+                        {riga.quantita}
+                      </Td>
+                      <Td etichetta="Prezzo" allineamento="right">
+                        {formatEuro(riga.prezzoUnitario)}
+                      </Td>
+                      <Td etichetta="Totale" allineamento="right" className="font-semibold text-ink">
                         {formatEuro(riga.quantita * riga.prezzoUnitario)}
                       </Td>
                       <Td allineamento="right" className="print:hidden">

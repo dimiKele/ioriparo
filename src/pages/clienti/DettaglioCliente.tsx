@@ -193,8 +193,10 @@ export function DettaglioCliente() {
                       key={riparazione.id}
                       onClick={() => navigate(`/riparazioni/${riparazione.id}`)}
                     >
-                      <Td className="whitespace-nowrap">{riparazione.codice}</Td>
-                      <Td>
+                      <Td etichetta="ID" className="whitespace-nowrap">
+                        {riparazione.codice}
+                      </Td>
+                      <Td etichetta="Dispositivo">
                         <span className="flex items-center gap-2.5">
                           <DeviceIcon tipo={riparazione.tipoDispositivo} dimensione="sm" />
                           <span className="min-w-0">
@@ -207,13 +209,13 @@ export function DettaglioCliente() {
                           </span>
                         </span>
                       </Td>
-                      <Td>
+                      <Td etichetta="Stato">
                         <BadgeStato stato={riparazione.stato} breve />
                       </Td>
-                      <Td className="whitespace-nowrap">
+                      <Td etichetta="Accettazione" className="whitespace-nowrap">
                         {formatData(riparazione.dataAccettazione)}
                       </Td>
-                      <Td allineamento="right" className="font-semibold text-ink">
+                      <Td etichetta="Totale" allineamento="right" className="font-semibold text-ink">
                         {formatEuro(totaleRiparazione(riparazione))}
                       </Td>
                     </Tr>
@@ -247,19 +249,21 @@ export function DettaglioCliente() {
                 <tbody>
                   {fatture.slice(0, 8).map((fattura) => (
                     <Tr key={fattura.id} onClick={() => navigate(`/fatture/${fattura.id}`)}>
-                      <Td className="whitespace-nowrap">
+                      <Td etichetta="Numero" className="whitespace-nowrap">
                         <span className="flex items-center gap-2">
                           <Receipt size={14} className="text-ink-faint" />
                           {fattura.numero}
                         </span>
                       </Td>
-                      <Td className="whitespace-nowrap">{formatData(fattura.data)}</Td>
-                      <Td>
+                      <Td etichetta="Data" className="whitespace-nowrap">
+                        {formatData(fattura.data)}
+                      </Td>
+                      <Td etichetta="Stato">
                         <Badge className={STATI_FATTURA[statoFatturaEffettivo(fattura)].badge}>
                           {STATI_FATTURA[statoFatturaEffettivo(fattura)].label}
                         </Badge>
                       </Td>
-                      <Td allineamento="right" className="font-semibold text-ink">
+                      <Td etichetta="Importo" allineamento="right" className="font-semibold text-ink">
                         {formatEuro(totaleFattura(fattura))}
                       </Td>
                     </Tr>
@@ -304,21 +308,23 @@ export function DettaglioCliente() {
                       key={preventivo.id}
                       onClick={() => navigate(`/preventivi/${preventivo.id}`)}
                     >
-                      <Td className="whitespace-nowrap">
+                      <Td etichetta="Numero" className="whitespace-nowrap">
                         <span className="flex items-center gap-2">
                           <FileText size={14} className="text-ink-faint" />
                           {preventivo.numero}
                         </span>
                       </Td>
-                      <Td className="whitespace-nowrap">{formatData(preventivo.data)}</Td>
-                      <Td>
+                      <Td etichetta="Data" className="whitespace-nowrap">
+                        {formatData(preventivo.data)}
+                      </Td>
+                      <Td etichetta="Stato">
                         <Badge
                           className={STATI_PREVENTIVO[statoPreventivoEffettivo(preventivo)].badge}
                         >
                           {STATI_PREVENTIVO[statoPreventivoEffettivo(preventivo)].label}
                         </Badge>
                       </Td>
-                      <Td allineamento="right" className="font-semibold text-ink">
+                      <Td etichetta="Importo" allineamento="right" className="font-semibold text-ink">
                         {formatEuro(totalePreventivo(preventivo))}
                       </Td>
                     </Tr>

@@ -390,8 +390,10 @@ export function Magazzino() {
                   const critico = articolo.quantita <= articolo.scorta_minima
                   return (
                     <Tr key={articolo.id}>
-                      <Td className="font-mono text-xs whitespace-nowrap">{articolo.codice}</Td>
-                      <Td>
+                      <Td etichetta="Codice" className="font-mono text-xs whitespace-nowrap">
+                        {articolo.codice}
+                      </Td>
+                      <Td etichetta="Articolo">
                         <span className="block text-[13px] font-medium text-ink">
                           {articolo.nome}
                         </span>
@@ -400,8 +402,10 @@ export function Magazzino() {
                           {articolo.ubicazione ? ` · ${articolo.ubicazione}` : ''}
                         </span>
                       </Td>
-                      <Td className="text-[13px]">{articolo.categoria}</Td>
-                      <Td allineamento="center">
+                      <Td etichetta="Categoria" className="text-[13px]">
+                        {articolo.categoria}
+                      </Td>
+                      <Td etichetta="Giacenza" allineamento="center">
                         <span className="flex items-center justify-center gap-1.5">
                           <IconButton
                             etichetta="Scarica un pezzo"
@@ -433,11 +437,21 @@ export function Magazzino() {
                           </span>
                         )}
                       </Td>
-                      <Td allineamento="right">{formatEuro(articolo.prezzoAcquisto)}</Td>
-                      <Td allineamento="right" className="font-semibold text-ink">
+                      <Td etichetta="Acquisto" allineamento="right">
+                        {formatEuro(articolo.prezzoAcquisto)}
+                      </Td>
+                      <Td
+                        etichetta="Vendita"
+                        allineamento="right"
+                        className="font-semibold text-ink"
+                      >
                         {formatEuro(articolo.prezzoVendita)}
                       </Td>
-                      <Td allineamento="center" className="text-[13px] text-emerald-400">
+                      <Td
+                        etichetta="Margine"
+                        allineamento="center"
+                        className="text-[13px] text-emerald-400"
+                      >
                         {margine(articolo.prezzoAcquisto, articolo.prezzoVendita).toFixed(0)}%
                       </Td>
                       <Td allineamento="right">
