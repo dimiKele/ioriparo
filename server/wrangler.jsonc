@@ -23,7 +23,7 @@
     // Origini autorizzate a chiamare l'API, separate da virgola.
     // In sviluppo il frontend gira su Vite; in produzione va indicato il
     // dominio da cui è servito il gestionale.
-    "ORIGINI_AMMESSE": "http://localhost:5173,http://localhost:5174"
+    "ORIGINI_AMMESSE": "https://ioriparo.dimichele-lu.workers.dev,http://localhost:5173,http://localhost:5174"
   }
   // Segreti da impostare con `wrangler secret put` (non stanno nel repository):
   //   PASSWORD_NEGOZIO  password condivisa di accesso

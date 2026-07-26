@@ -89,6 +89,23 @@ Le date del dataset sono calcolate rispetto al giorno corrente, così dashboard,
 e scadenze restano sempre significativi. Da *Impostazioni* si possono ripristinare i dati
 dimostrativi, da *Backup* esportare e reimportare l'archivio.
 
+## Indirizzi in esercizio
+
+| Cosa | Indirizzo |
+| --- | --- |
+| Gestionale | https://ioriparo.dimichele-lu.workers.dev |
+| API del negozio | https://ioriparo-api.dimichele-lu.workers.dev |
+
+L'API non si apre nel browser: risponde solo alle chiamate dell'applicazione e
+alla radice restituisce un errore di autenticazione. Per pubblicare una nuova
+versione dell'interfaccia bastano `npm run build` e `npx wrangler deploy` dalla
+radice del progetto; l'API si aggiorna separatamente da `server/`.
+
+**Prima di collegare la prima postazione**: l'applicazione parte sempre con
+l'archivio dimostrativo, e collegandosi lo invia al server. Conviene quindi
+importare il backup reale (o ripristinare i dati dimostrativi se si vuole
+partire da lì) *prima* di inserire la password del negozio.
+
 ## Server del negozio (opzionale)
 
 Senza server il gestionale funziona su un solo dispositivo. Il backend in

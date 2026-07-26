@@ -1,0 +1,13 @@
+{
+  // Pubblicazione dell'interfaccia. L'API sta in `server/` ed è un Worker a sé:
+  // così si aggiorna il gestionale senza toccare l'archivio, e viceversa.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ioriparo",
+  "compatibility_date": "2026-07-01",
+  "assets": {
+    "directory": "./dist",
+    // L'applicazione ha un router proprio: ogni indirizzo sconosciuto deve
+    // ricevere `index.html`, altrimenti ricaricare /riparazioni/xyz dà 404.
+    "not_found_handling": "single-page-application"
+  }
+}
